@@ -427,11 +427,7 @@ impl LightSnap {
                     Ok(path) => {
                         let mut v = VideoView::new(path, self.ffmpeg.clone(), self.rec_started_name.clone(), 0.0);
                         v.seek(ctx, 0.0);
-                        if v.size[0] > 0 {
-                            let sz = vec2(v.size[0] as f32, v.size[1] as f32) / self.native_ppp;
-                            let want = vec2((sz.x + 60.0).max(900.0), (sz.y + 52.0 + 64.0 + 40.0).max(480.0));
-                            self.pending_size = Some(want.min(self.monitor * 0.92));
-                        }
+                        self.fit_video_window(v.size);
                         self.ed = None;
                         self.video = Some(v);
                         if self.settings.autosave_movies {

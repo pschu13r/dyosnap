@@ -64,6 +64,7 @@ impl LightSnap {
                 let mut v = VideoView::new(p.to_path_buf(), self.ffmpeg.clone(), name, 0.0);
                 v.saved = Some(p.to_path_buf());
                 v.seek(ctx, 0.0);
+                self.fit_video_window(v.size);
                 self.ed = None;
                 self.video = Some(v);
             } else {
@@ -89,16 +90,12 @@ impl LightSnap {
         }
     }
 
-    pub(super) fn set_editor(&mut self, ctx: &egui::Context, ed: Editor) {
-        // A freshly opened picture is not an edit; don't copy it again.
-        self.clip_version = ed.version;
-        self.clip_due = None;
+    /// Sizes the window for a new picture or video: `want`, but at most 75% of the usable
+    /// screen (below the menu bar / top bar), centred on it. Never more, even if that is
+    /// smaller than `want`: the content is then shown smaller.
+    pub(super) fn fit_window(&mut self, want: egui::Vec2) {
         // Linux: the window may be closed, so ask the system for the screen.
         self.refresh_screen();
-        let size = ed.doc.size() / ed.ppp;
-        let want = vec2((size.x + 60.0).max(980.0), (size.y + 52.0 + 52.0 + 60.0).max(480.0));
-        // At most 75% of the usable screen (below the menu bar / top bar), centred on it.
-        // Never more, even if that is smaller than `want`: the picture is then shown smaller.
         let (menu_bar, title_bar) = if cfg!(target_os = "linux") { (32.0, 36.0) } else { (25.0, 28.0) };
         let usable = self.monitor - vec2(0.0, menu_bar);
         let max = (usable * 0.75 - vec2(0.0, title_bar)).max(vec2(320.0, 240.0));
@@ -109,6 +106,25 @@ impl LightSnap {
             ((self.monitor.x - outer.x) / 2.0).max(0.0),
             menu_bar + ((usable.y - outer.y) / 2.0).max(0.0),
         ));
+    }
+
+    /// Sizes the window for a video of `size` pixels (after `seek` knows it).
+    pub(super) fn fit_video_window(&mut self, size: [u32; 2]) {
+        if size[0] == 0 {
+            return;
+        }
+        // The scale comes from the system on Linux, so refresh before using it.
+        self.refresh_screen();
+        let sz = vec2(size[0] as f32, size[1] as f32) / self.native_ppp;
+        self.fit_window(vec2((sz.x + 60.0).max(900.0), (sz.y + 52.0 + 64.0 + 40.0).max(480.0)));
+    }
+
+    pub(super) fn set_editor(&mut self, ctx: &egui::Context, ed: Editor) {
+        // A freshly opened picture is not an edit; don't copy it again.
+        self.clip_version = ed.version;
+        self.clip_due = None;
+        let size = ed.doc.size() / ed.ppp;
+        self.fit_window(vec2((size.x + 60.0).max(980.0), (size.y + 52.0 + 52.0 + 60.0).max(480.0)));
         self.video = None;
         self.ed = Some(ed);
         let _ = ctx;
