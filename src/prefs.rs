@@ -734,9 +734,10 @@ impl Prefs {
 }
 
 /// The actions of the Screenshots tab's shortcuts, as (id, label): the fixed ones, then
-/// one "Capture area to <folder>" for each extra folder.
+/// one "To <folder>" for each extra folder (short, so the folder name fits; the desktop's
+/// own list says "Capture area to <folder>").
 fn screenshot_actions(s: &Settings) -> Vec<(String, String)> {
-    let folders = s.extra_dirs.iter().map(|d| (folder_action(d.id), format!("Capture area to {}", dir_name(&d.path))));
+    let folders = s.extra_dirs.iter().map(|d| (folder_action(d.id), format!("To {}", dir_name(&d.path))));
     HOTKEY_ACTIONS
         .iter()
         .filter(|(id, _)| *id != "record")
