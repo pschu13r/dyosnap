@@ -134,6 +134,10 @@ Download the package for your system from
   start `dyosnap`. On first start it adds itself to your app list
   (`~/.local/share/applications`).
 
+Switching from the tarball to the .deb or .rpm: start `dyosnap` once from a terminal. It
+removes the tarball's app list entry, which would otherwise keep starting the old version.
+Then delete the unpacked tarball folder.
+
 DyoSnap also needs:
 
 - **ffmpeg** for recordings, with x264 (preferred) or OpenH264 (fallback). To check, run

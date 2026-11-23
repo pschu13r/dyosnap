@@ -117,6 +117,7 @@ pub fn editor_label(app: &str) -> String {
 /// this binary.
 pub fn prepare() {
     migrate_old_app_id();
+    refresh_login_item();
     std::thread::spawn(|| {
         super::recording::h264_encoder();
     });
@@ -217,6 +218,19 @@ pub fn log_dir() -> Option<PathBuf> {
 
 fn autostart_path() -> Option<PathBuf> {
     dirs::config_dir().map(|d| d.join("autostart").join(format!("{}.desktop", super::APP_ID)))
+}
+
+/// Points "Launch at login" at this binary. After a switch from the tarball to a package
+/// the entry still starts the old tarball binary otherwise.
+fn refresh_login_item() {
+    let Some(path) = autostart_path() else { return };
+    let Ok(text) = std::fs::read_to_string(&path) else { return };
+    let exe = std::env::var_os("APPIMAGE").map(PathBuf::from).or_else(|| std::env::current_exe().ok());
+    let Some(exe) = exe else { return };
+    let want = format!("Exec={} --background", desktop_quote(&exe.display().to_string()));
+    if !text.lines().any(|l| l == want) {
+        set_login_item(true);
+    }
 }
 
 pub fn login_item_enabled() -> bool {
