@@ -24,8 +24,7 @@ pub enum Icon {
     Pause,
     Folder,
     Gear,
-    Sliders,
-    Command,
+    Video,
     Info,
 }
 
@@ -190,23 +189,9 @@ pub fn draw(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
             p.rect_filled(Rect::from_min_max(at(2.5, 5.0), at(9.0, 8.0)), 1.5 * u, color);
             p.rect_filled(Rect::from_min_max(at(2.5, 6.5), at(17.5, 16.0)), 1.5 * u, color);
         }
-        Icon::Sliders => {
-            let st = Stroke::new(1.4 * u.max(0.8), color);
-            for (y, knob) in [(4.0, 6.5), (10.0, 13.5), (16.0, 8.5)] {
-                p.line_segment([at(2.0, y), at(knob - 2.2, y)], st);
-                p.line_segment([at(knob + 2.2, y), at(18.0, y)], st);
-                p.circle_stroke(at(knob, y), 2.2 * u, st);
-            }
-        }
-        Icon::Command => {
-            p.rect_stroke(
-                Rect::from_min_max(at(1.5, 1.5), at(18.5, 18.5)),
-                4.0 * u,
-                Stroke::new(1.6 * u.max(0.8), color),
-                egui::StrokeKind::Middle,
-            );
-            let glyph = if cfg!(target_os = "linux") { "⌨" } else { "⌘" };
-            p.text(c, egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(13.0 * u), color);
+        Icon::Video => {
+            p.rect_filled(Rect::from_min_max(at(1.5, 5.0), at(13.0, 15.0)), 2.0 * u, color);
+            p.add(Shape::convex_polygon(vec![at(14.5, 9.0), at(18.5, 6.0), at(18.5, 14.0), at(14.5, 11.0)], color, Stroke::NONE));
         }
         Icon::Info => {
             p.circle_stroke(c, 8.5 * u, Stroke::new(1.6 * u.max(0.8), color));

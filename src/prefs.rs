@@ -1,4 +1,4 @@
-//! The settings window: its own window with General, Advanced, Hotkeys and About tabs.
+//! The settings window: its own window with General, Screenshots, Video and About tabs.
 //! Cloud-only options of the original (upload, links, account) are left out on purpose.
 
 use crate::icons::{self, Icon};
@@ -30,8 +30,8 @@ const FONT: f32 = 13.0;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tab {
     General,
-    Advanced,
-    Hotkeys,
+    Screenshots,
+    Video,
     About,
 }
 
@@ -39,24 +39,24 @@ impl Tab {
     fn name(self) -> &'static str {
         match self {
             Tab::General => "General",
-            Tab::Advanced => "Advanced",
-            Tab::Hotkeys => "Hotkeys",
+            Tab::Screenshots => "Screenshots",
+            Tab::Video => "Video",
             Tab::About => "About",
         }
     }
     fn icon(self) -> Icon {
         match self {
-            Tab::General => Icon::Sliders,
-            Tab::Advanced => Icon::Gear,
-            Tab::Hotkeys => Icon::Command,
+            Tab::General => Icon::Gear,
+            Tab::Screenshots => Icon::CameraPlus,
+            Tab::Video => Icon::Video,
             Tab::About => Icon::Info,
         }
     }
     fn size(self) -> Vec2 {
         match self {
-            Tab::General => vec2(WIN_W, 330.0),
-            Tab::Advanced => vec2(WIN_W, 600.0),
-            Tab::Hotkeys => vec2(WIN_W, 600.0),
+            Tab::General => vec2(WIN_W, 420.0),
+            Tab::Screenshots => vec2(WIN_W, 640.0),
+            Tab::Video => vec2(WIN_W, 400.0),
             Tab::About => vec2(WIN_W, 400.0),
         }
     }
@@ -261,7 +261,7 @@ impl Prefs {
             [header.left_bottom(), header.right_bottom()],
             Stroke::new(1.0, Color32::from_gray(24)),
         );
-        let tabs = [Tab::General, Tab::Advanced, Tab::Hotkeys, Tab::About];
+        let tabs = [Tab::General, Tab::Screenshots, Tab::Video, Tab::About];
         let tw = 66.0;
         let x0 = header.center().x - tw * tabs.len() as f32 / 2.0;
         for (i, t) in tabs.iter().enumerate() {
@@ -310,8 +310,8 @@ impl Prefs {
             }
             match self.tab {
                 Tab::General => self.general(ui, s, out),
-                Tab::Advanced => self.advanced(ui, s, out),
-                Tab::Hotkeys => self.hotkeys(ui, s, out),
+                Tab::Screenshots => self.screenshots(ui, s, out),
+                Tab::Video => self.video(ui, s, out),
                 Tab::About => crate::about::draw(ui, &mut self.about_icon),
             }
             ui.min_rect().height()
@@ -353,6 +353,50 @@ impl Prefs {
     // ------------------------------------------------------------ General
 
     fn general(&mut self, ui: &mut Ui, s: &mut Settings, out: &mut PrefsOut) {
+        row(ui, "", |ui| {
+            let mut on = crate::platform::login_item_enabled();
+            if ui.checkbox(&mut on, "Launch at login").changed() {
+                crate::platform::set_login_item(on);
+            }
+        });
+        row(ui, "", |ui| {
+            out.changed |= ui.checkbox(&mut s.sound, "Sound effects").changed();
+        });
+        separator(ui);
+        row(ui, "Filename template:", |ui| {
+            out.changed |= ui
+                .add(egui::TextEdit::singleline(&mut s.name_template).desired_width(CTRL_W))
+                .changed();
+        });
+        row(ui, "", |ui| {
+            out.changed |= ui.checkbox(&mut s.apply_template_reopened, "Apply to reopened files").changed();
+        });
+        ui.vertical_centered(|ui| {
+            ui.spacing_mut().item_spacing.y = 1.0;
+            for line in [
+                "%Y — 4-digit year, %y — 2-digit year,",
+                "%m — month, %d — day, %H — hour,",
+                "%M — minutes, %S — seconds,",
+                "%R — 5 random symbols, %T — file type",
+            ] {
+                ui.label(egui::RichText::new(line).color(DIM).size(12.0));
+            }
+        });
+        separator(ui);
+        ui.vertical_centered(|ui| {
+            if ui.add(egui::Button::new("Reset all settings").min_size(vec2(190.0, 24.0))).clicked() {
+                *s = Settings::default();
+                out.changed = true;
+                out.hotkeys_changed = true;
+                out.save_dir_changed = true;
+            }
+            ui.label(egui::RichText::new("ALL settings in the application will be reset").color(DIM));
+        });
+    }
+
+    // ------------------------------------------------------------ Screenshots
+
+    fn screenshots(&mut self, ui: &mut Ui, s: &mut Settings, out: &mut PrefsOut) {
         row(ui, "After screenshot:", |ui| {
             egui::ComboBox::from_id_salt("after").width(CTRL_W).selected_text(s.after_capture.label()).show_ui(ui, |ui| {
                 for a in [AfterCapture::OpenEditor, AfterCapture::SaveAndCopy, AfterCapture::CopyOnly] {
@@ -360,41 +404,11 @@ impl Prefs {
                 }
             });
         });
-        row(ui, "", |ui| {
-            out.changed |= ui.checkbox(&mut s.sound, "Sound effects").changed();
-        });
         row(ui, "Timed capture after:", |ui| {
             ui.spacing_mut().slider_width = CTRL_W - 46.0;
             out.changed |= ui.add(egui::Slider::new(&mut s.delay_secs, 1..=30).suffix(" s")).changed();
         });
         separator(ui);
-        row(ui, "External Image Editor:", |ui| {
-            let name = crate::platform::editor_label(&s.external_editor);
-            egui::ComboBox::from_id_salt("ext_editor").width(CTRL_W).selected_text(name).show_ui(ui, |ui| {
-                for (value, label) in crate::platform::EDITOR_APPS {
-                    out.changed |= ui.selectable_value(&mut s.external_editor, value.to_string(), *label).changed();
-                }
-                if !crate::platform::EDITOR_APPS.iter().any(|(v, _)| *v == s.external_editor) {
-                    let cur = s.external_editor.clone();
-                    let _ = ui.selectable_label(true, crate::platform::editor_label(&cur));
-                }
-                if ui.selectable_label(false, "Choose…").clicked() {
-                    out.pick_editor_app = true;
-                }
-            });
-        });
-        separator(ui);
-        row(ui, "", |ui| {
-            let mut on = crate::platform::login_item_enabled();
-            if ui.checkbox(&mut on, "Launch at login").changed() {
-                crate::platform::set_login_item(on);
-            }
-        });
-    }
-
-    // ------------------------------------------------------------ Advanced
-
-    fn advanced(&mut self, ui: &mut Ui, s: &mut Settings, out: &mut PrefsOut) {
         row(ui, "Image File Format:", |ui| {
             let label = match s.format {
                 ImageFormat::Png => "PNG",
@@ -431,6 +445,46 @@ impl Prefs {
             out.changed |= ui.checkbox(&mut s.shrink_retina, "Shrink Retina snaps").changed();
         });
         separator(ui);
+        row(ui, "Copy to clipboard:", |ui| {
+            out.changed |= ui.checkbox(&mut s.copy_path, "Path").changed();
+            ui.add_space(16.0);
+            out.changed |= ui.checkbox(&mut s.copy_image, "Image").changed();
+            // Linux copies PNG only: TIFF is a macOS clipboard format.
+            if cfg!(target_os = "linux") {
+                return;
+            }
+            ui.add_space(16.0);
+            let label = match s.clip_format {
+                ClipFormat::Png => "PNG",
+                ClipFormat::Tiff => "TIFF",
+            };
+            egui::ComboBox::from_id_salt("clip_fmt").width(70.0).selected_text(label).show_ui(ui, |ui| {
+                out.changed |= ui.selectable_value(&mut s.clip_format, ClipFormat::Png, "PNG").changed();
+                out.changed |= ui.selectable_value(&mut s.clip_format, ClipFormat::Tiff, "TIFF").changed();
+            });
+        });
+        row(ui, "External Image Editor:", |ui| {
+            let name = crate::platform::editor_label(&s.external_editor);
+            egui::ComboBox::from_id_salt("ext_editor").width(CTRL_W).selected_text(name).show_ui(ui, |ui| {
+                for (value, label) in crate::platform::EDITOR_APPS {
+                    out.changed |= ui.selectable_value(&mut s.external_editor, value.to_string(), *label).changed();
+                }
+                if !crate::platform::EDITOR_APPS.iter().any(|(v, _)| *v == s.external_editor) {
+                    let cur = s.external_editor.clone();
+                    let _ = ui.selectable_label(true, crate::platform::editor_label(&cur));
+                }
+                if ui.selectable_label(false, "Choose…").clicked() {
+                    out.pick_editor_app = true;
+                }
+            });
+        });
+        separator(ui);
+        self.shortcuts(ui, s, &screenshot_actions(), out);
+    }
+
+    // ------------------------------------------------------------ Video
+
+    fn video(&mut self, ui: &mut Ui, s: &mut Settings, out: &mut PrefsOut) {
         row(ui, "Video File Format:", |ui| {
             egui::ComboBox::from_id_salt("vid_fmt").width(CTRL_W).selected_text(s.video_format.label()).show_ui(ui, |ui| {
                 for f in [VideoFormat::Mp4, VideoFormat::Mov, VideoFormat::Gif] {
@@ -450,65 +504,20 @@ impl Prefs {
             out.changed |= ui.checkbox(&mut s.autosave_movies, "Autosave to \"Movies\" folder").changed();
         });
         separator(ui);
-        row(ui, "Copy to clipboard:", |ui| {
-            out.changed |= ui.checkbox(&mut s.copy_path, "Path").changed();
-            ui.add_space(16.0);
-            out.changed |= ui.checkbox(&mut s.copy_image, "Image").changed();
-            // Linux copies PNG only: TIFF is a macOS clipboard format.
-            if cfg!(target_os = "linux") {
-                return;
-            }
-            ui.add_space(16.0);
-            let label = match s.clip_format {
-                ClipFormat::Png => "PNG",
-                ClipFormat::Tiff => "TIFF",
-            };
-            egui::ComboBox::from_id_salt("clip_fmt").width(70.0).selected_text(label).show_ui(ui, |ui| {
-                out.changed |= ui.selectable_value(&mut s.clip_format, ClipFormat::Png, "PNG").changed();
-                out.changed |= ui.selectable_value(&mut s.clip_format, ClipFormat::Tiff, "TIFF").changed();
-            });
-        });
-        separator(ui);
-        row(ui, "Filename template:", |ui| {
-            out.changed |= ui
-                .add(egui::TextEdit::singleline(&mut s.name_template).desired_width(CTRL_W))
-                .changed();
-        });
-        row(ui, "", |ui| {
-            out.changed |= ui.checkbox(&mut s.apply_template_reopened, "Apply to reopened files").changed();
-        });
-        ui.vertical_centered(|ui| {
-            ui.spacing_mut().item_spacing.y = 1.0;
-            for line in [
-                "%Y — 4-digit year, %y — 2-digit year,",
-                "%m — month, %d — day, %H — hour,",
-                "%M — minutes, %S — seconds,",
-                "%R — 5 random symbols, %T — file type",
-            ] {
-                ui.label(egui::RichText::new(line).color(DIM).size(12.0));
-            }
-        });
-        separator(ui);
-        ui.vertical_centered(|ui| {
-            if ui.add(egui::Button::new("Reset all settings").min_size(vec2(190.0, 24.0))).clicked() {
-                *s = Settings::default();
-                out.changed = true;
-                out.hotkeys_changed = true;
-                out.save_dir_changed = true;
-            }
-            ui.label(egui::RichText::new("ALL settings in the application will be reset").color(DIM));
-        });
+        self.shortcuts(ui, s, &video_actions(), out);
     }
 
-    // ------------------------------------------------------------ Hotkeys
+    // ------------------------------------------------------------ Shortcuts
 
-    fn hotkeys(&mut self, ui: &mut Ui, s: &mut Settings, out: &mut PrefsOut) {
+    /// The "Shortcuts" block of a tab: a key row for each of its actions.
+    fn shortcuts(&mut self, ui: &mut Ui, s: &mut Settings, actions: &[(String, String)], out: &mut PrefsOut) {
+        ui.vertical_centered(|ui| ui.label(egui::RichText::new("Shortcuts").color(TEXT)));
         // Linux: the desktop owns global shortcuts. Show what it has; changes happen there.
         if let Some(live) = s.live_keys.clone() {
-            for (id, label) in HOTKEY_ACTIONS.iter().chain(VIDEO_HOTKEY_ACTIONS.iter()) {
-                let label = if *id == "timed" { format!("Fullscreen after {}s:", s.delay_secs) } else { format!("{label}:") };
+            for (id, label) in actions {
+                let label = if id == "timed" { format!("Fullscreen after {}s:", s.delay_secs) } else { format!("{label}:") };
                 row_w(ui, &label, KEY_LABEL_W, 10.0, |ui| {
-                    let text = live.get(*id).filter(|t| !t.is_empty()).cloned().unwrap_or_else(|| "Not set".into());
+                    let text = live.get(id).filter(|t| !t.is_empty()).cloned().unwrap_or_else(|| "Not set".into());
                     let (r, _) = ui.allocate_exact_size(vec2(CTRL_W - 40.0, 27.0), Sense::hover());
                     ui.painter().rect_filled(r, 3.0, KEY_BTN);
                     ui.painter().text(r.center(), Align2::CENTER_CENTER, text, FontId::proportional(FONT), TEXT);
@@ -526,54 +535,51 @@ impl Prefs {
             }
             return;
         }
-        // Record a new shortcut from the next key press.
-        if let Some(id) = self.capturing.clone() {
-            let pressed = ui.input(|i| {
-                i.events.iter().find_map(|e| match e {
-                    egui::Event::Key { key, pressed: true, modifiers, .. } => Some((*key, *modifiers)),
-                    _ => None,
-                })
-            });
-            if let Some((key, m)) = pressed {
-                if key == Key::Escape && !m.any() {
-                    self.cancel_capture(out);
-                } else if let Some(code) = key_to_code(key) {
-                    let is_fkey = code.starts_with('F') && code.len() > 1 && code[1..].chars().all(|c| c.is_ascii_digit());
-                    if m.mac_cmd || m.command || m.alt || m.ctrl || is_fkey {
-                        // On Linux `command` is Ctrl; `cmd` stands for it, so `ctrl` stays off.
-                        let ctrl = m.ctrl && cfg!(target_os = "macos");
-                        let hk = Hotkey { cmd: m.mac_cmd || m.command, alt: m.alt, ctrl, shift: m.shift, code };
-                        // One shortcut, one action.
-                        let others: Vec<String> = HOTKEY_ACTIONS
-                            .iter()
-                            .chain(VIDEO_HOTKEY_ACTIONS.iter())
-                            .map(|(i, _)| i.to_string())
-                            .filter(|i| *i != id && s.hotkey(i).as_ref() == Some(&hk))
-                            .collect();
-                        for o in others {
-                            s.keys.insert(o, None);
-                        }
-                        s.keys.insert(id.clone(), Some(hk));
-                        out.changed = true;
-                        out.hotkeys_changed = true;
-                        self.cancel_capture(out);
-                    }
-                }
-            }
-            ui.ctx().request_repaint();
-        }
-
-        for (id, label) in HOTKEY_ACTIONS {
+        self.record_key(ui, s, out);
+        for (id, label) in actions {
             let label = if id == "timed" { format!("Fullscreen after {}s:", s.delay_secs) } else { format!("{label}:") };
             self.key_row(ui, s, id, &label, out);
         }
-        separator(ui);
-        ui.vertical_centered(|ui| ui.label(egui::RichText::new("Video record hotkeys:").color(TEXT)));
-        for (id, label) in VIDEO_HOTKEY_ACTIONS {
-            self.key_row(ui, s, id, &format!("{label}:"), out);
-        }
         ui.add_space(4.0);
         ui.label(egui::RichText::new("Click a field, then press the new shortcut. Esc cancels.").color(DIM));
+    }
+
+    /// Records a new shortcut from the next key press.
+    fn record_key(&mut self, ui: &mut Ui, s: &mut Settings, out: &mut PrefsOut) {
+        let Some(id) = self.capturing.clone() else { return };
+        let pressed = ui.input(|i| {
+            i.events.iter().find_map(|e| match e {
+                egui::Event::Key { key, pressed: true, modifiers, .. } => Some((*key, *modifiers)),
+                _ => None,
+            })
+        });
+        if let Some((key, m)) = pressed {
+            if key == Key::Escape && !m.any() {
+                self.cancel_capture(out);
+            } else if let Some(code) = key_to_code(key) {
+                let is_fkey = code.starts_with('F') && code.len() > 1 && code[1..].chars().all(|c| c.is_ascii_digit());
+                if m.mac_cmd || m.command || m.alt || m.ctrl || is_fkey {
+                    // On Linux `command` is Ctrl; `cmd` stands for it, so `ctrl` stays off.
+                    let ctrl = m.ctrl && cfg!(target_os = "macos");
+                    let hk = Hotkey { cmd: m.mac_cmd || m.command, alt: m.alt, ctrl, shift: m.shift, code };
+                    // One shortcut, one action: across the actions of every tab.
+                    let others: Vec<String> = screenshot_actions()
+                        .into_iter()
+                        .chain(video_actions())
+                        .map(|(i, _)| i)
+                        .filter(|i| *i != id && s.hotkey(i).as_ref() == Some(&hk))
+                        .collect();
+                    for o in others {
+                        s.keys.insert(o, None);
+                    }
+                    s.keys.insert(id.clone(), Some(hk));
+                    out.changed = true;
+                    out.hotkeys_changed = true;
+                    self.cancel_capture(out);
+                }
+            }
+        }
+        ui.ctx().request_repaint();
     }
 
     fn key_row(&mut self, ui: &mut Ui, s: &mut Settings, id: &str, label: &str, out: &mut PrefsOut) {
@@ -623,6 +629,21 @@ impl Prefs {
             }
         });
     }
+}
+
+/// The actions of the Screenshots tab's shortcuts, as (id, label).
+fn screenshot_actions() -> Vec<(String, String)> {
+    HOTKEY_ACTIONS.iter().filter(|(id, _)| *id != "record").map(|(i, l)| (i.to_string(), l.to_string())).collect()
+}
+
+/// The actions of the Video tab's shortcuts, as (id, label).
+fn video_actions() -> Vec<(String, String)> {
+    HOTKEY_ACTIONS
+        .iter()
+        .filter(|(id, _)| *id == "record")
+        .chain(VIDEO_HOTKEY_ACTIONS.iter())
+        .map(|(i, l)| (i.to_string(), l.to_string()))
+        .collect()
 }
 
 /// A settings row: a right-aligned label column, then the controls.

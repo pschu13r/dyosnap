@@ -275,14 +275,14 @@ impl LightSnap {
         if let Some(p) = open {
             app.open_file(&ctx, &p);
         }
-        // For check pictures: LS_PREFS=general|advanced|hotkeys|about draws the settings inside the main window.
+        // For check pictures: LS_PREFS=general|screenshots|video|about draws the settings inside the main window.
         if let (true, Ok(tab)) = (app.shot.is_some() && cfg!(debug_assertions), std::env::var("LS_PREFS")) {
             ctx.set_embed_viewports(true);
             app.pending_size = Some(vec2(900.0, 840.0));
             app.prefs.open();
             app.prefs.tab = match tab.as_str() {
-                "advanced" => crate::prefs::Tab::Advanced,
-                "hotkeys" => crate::prefs::Tab::Hotkeys,
+                "screenshots" => crate::prefs::Tab::Screenshots,
+                "video" => crate::prefs::Tab::Video,
                 "about" => crate::prefs::Tab::About,
                 _ => crate::prefs::Tab::General,
             };
