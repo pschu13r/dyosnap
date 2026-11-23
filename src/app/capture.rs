@@ -284,18 +284,15 @@ impl LightSnap {
         if let Some(dir) = &target {
             // The folder may be gone since it was added: make it again.
             match std::fs::create_dir_all(dir) {
-                Ok(()) => {
-                    let dest = crate::settings::free_path_in(dir, &name, self.settings.format.ext());
-                    match self.save_capture(&path, &dest) {
-                        true => saved = Some(dest),
-                        false => save_error = Some(format!("Could not save to {}", crate::settings::dir_name(dir))),
-                    }
-                }
+                Ok(()) => match self.save_capture(&path, dir, &name) {
+                    Some(dest) => saved = Some(dest),
+                    None => save_error = Some(format!("Could not save to {}", crate::settings::dir_name(dir))),
+                },
                 Err(e) => save_error = Some(format!("Could not create {}: {e}", dir.display())),
             }
         } else if self.settings.autosave || self.settings.after_capture == AfterCapture::SaveAndCopy {
-            let dest = self.settings.free_path(&name, self.settings.format.ext());
-            if self.save_capture(&path, &dest) {
+            let _ = std::fs::create_dir_all(&self.settings.save_dir);
+            if let Some(dest) = self.save_capture(&path, &self.settings.save_dir, &name) {
                 saved = Some(dest);
                 self.recent_dirty = true;
                 self.tray_menu_dirty = true;

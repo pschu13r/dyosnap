@@ -364,10 +364,35 @@ fn settings_path() -> Option<PathBuf> {
 
 impl Settings {
     pub fn load() -> Self {
-        settings_path()
+        let mut s: Self = settings_path()
             .and_then(|p| std::fs::read_to_string(p).ok())
             .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        s.sanitize();
+        s
+    }
+
+    /// Makes the extra folders of a file that was edited by hand usable: only absolute paths,
+    /// no id 0, no repeated id or path (the first one stays), at most `MAX_EXTRA_DIRS`, and
+    /// a counter above every id. Paths are not resolved: a folder may not exist yet.
+    pub fn sanitize(&mut self) {
+        let mut kept: Vec<ExtraDir> = Vec::new();
+        for d in std::mem::take(&mut self.extra_dirs) {
+            if kept.len() >= MAX_EXTRA_DIRS {
+                break;
+            }
+            if d.id == 0 || !d.path.is_absolute() || kept.iter().any(|k| k.id == d.id || k.path == d.path) {
+                continue;
+            }
+            kept.push(d);
+        }
+        self.extra_dirs = kept;
+        // Shortcuts of folders that are gone would only clutter the file.
+        let live: Vec<String> = self.extra_dirs.iter().map(|d| folder_action(d.id)).collect();
+        self.keys.retain(|k, _| folder_id(k).is_none() || live.contains(k));
+        let above = self.extra_dirs.iter().map(|d| d.id).max().map_or(Some(1), |m| m.checked_add(1));
+        // With no id left above, the counter stays at the top: no folder can be added.
+        self.next_folder_id = self.next_folder_id.max(above.unwrap_or(u32::MAX)).max(1);
     }
 
     pub fn save(&self) {
@@ -446,16 +471,10 @@ impl Settings {
         self.hotkey(id).map(|k| k.short()).unwrap_or_default()
     }
 
-    /// A free path in the save folder for `stem.ext`.
-    pub fn free_path(&self, stem: &str, ext: &str) -> PathBuf {
-        let _ = std::fs::create_dir_all(&self.save_dir);
-        free_path_in(&self.save_dir, stem, ext)
-    }
-
     /// What a shortcut does, in the desktop's own list of shortcuts (Linux).
     pub fn action_description(&self, id: &str) -> String {
         if let Some(d) = self.extra_dir(id) {
-            return format!("Capture area to {}", dir_name(&d.path));
+            return format!("Capture area to {}", short_label(&dir_name(&d.path)));
         }
         HOTKEY_ACTIONS
             .iter()
@@ -477,10 +496,16 @@ impl Settings {
         if self.extra_dirs.len() >= MAX_EXTRA_DIRS || path == self.save_dir || self.extra_dirs.iter().any(|d| d.path == path) {
             return false;
         }
-        // Also above every id in the list, in case the file was edited by hand.
-        let above = self.extra_dirs.iter().map(|d| d.id + 1).max().unwrap_or(1);
+        // Also above every id in the list, in case the file was edited by hand. With no id
+        // left, nothing is added (like at the limit).
+        let mut above = 1;
+        for d in &self.extra_dirs {
+            let Some(next) = d.id.checked_add(1) else { return false };
+            above = above.max(next);
+        }
         let id = self.next_folder_id.max(above);
-        self.next_folder_id = id + 1;
+        let Some(next) = id.checked_add(1) else { return false };
+        self.next_folder_id = next;
         self.extra_dirs.push(ExtraDir { id, path });
         true
     }
@@ -493,16 +518,37 @@ impl Settings {
     }
 }
 
-/// A free path in `dir` for `stem.ext`: "stem.ext", then "stem (2).ext", and so on.
-pub fn free_path_in(dir: &Path, stem: &str, ext: &str) -> PathBuf {
+/// How many names `create_new_in` tries.
+const NAME_TRIES: u32 = 1000;
+
+/// Makes a new file in `dir` named `stem.ext`, then `stem (2).ext`, and so on. The file is
+/// created in one step that fails if the name exists already, also as a dangling symbolic
+/// link, so nothing is overwritten or followed to another place.
+pub fn create_new_in(dir: &Path, stem: &str, ext: &str) -> std::io::Result<(PathBuf, std::fs::File)> {
     let stem = sanitize(stem);
-    let mut p = dir.join(format!("{stem}.{ext}"));
-    let mut n = 2;
-    while p.exists() {
-        p = dir.join(format!("{stem} ({n}).{ext}"));
-        n += 1;
+    for n in 1..=NAME_TRIES {
+        let name = if n == 1 { format!("{stem}.{ext}") } else { format!("{stem} ({n}).{ext}") };
+        let p = dir.join(name);
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&p) {
+            Ok(f) => return Ok((p, f)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
     }
-    p
+    Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "no free file name"))
+}
+
+/// Longest folder name shown in a shortcut's description.
+const LABEL_MAX: usize = 60;
+
+/// A name for a label: control characters (also NUL) removed, and cut to `LABEL_MAX`
+/// characters with "…".
+pub fn short_label(name: &str) -> String {
+    let clean: String = name.chars().filter(|c| !c.is_control()).collect();
+    if clean.chars().count() <= LABEL_MAX {
+        return clean;
+    }
+    clean.chars().take(LABEL_MAX - 1).collect::<String>() + "…"
 }
 
 pub fn sanitize(s: &str) -> String {
@@ -602,5 +648,89 @@ mod tests {
         assert!(s.extra_dirs.is_empty());
         assert_eq!(s.next_folder_id, 1);
         assert!(s.sound);
+    }
+
+    fn dirs_of(list: &[(u32, &str)]) -> Settings {
+        Settings {
+            extra_dirs: list.iter().map(|(id, p)| ExtraDir { id: *id, path: PathBuf::from(p) }).collect(),
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn sanitize_drops_bad_extra_dirs() {
+        let mut s = dirs_of(&[(0, "/zero"), (1, "relative/x"), (2, "/a"), (2, "/same-id"), (3, "/a"), (4, "/b")]);
+        s.keys.insert("folder3".into(), hk("Digit3"));
+        s.keys.insert("area".into(), hk("Digit4"));
+        s.sanitize();
+        assert_eq!(ids(&s), [2, 4]);
+        assert!(s.next_folder_id > 4);
+        assert!(!s.keys.contains_key("folder3"));
+        assert!(s.keys.contains_key("area"));
+    }
+
+    #[test]
+    fn sanitize_truncates_and_keeps_the_counter_above() {
+        let list: Vec<(u32, String)> = (1..=50).map(|i| (i, format!("/f{i}"))).collect();
+        let mut s = Settings {
+            extra_dirs: list.iter().map(|(id, p)| ExtraDir { id: *id, path: p.into() }).collect(),
+            next_folder_id: 3,
+            ..Settings::default()
+        };
+        s.sanitize();
+        assert_eq!(s.extra_dirs.len(), MAX_EXTRA_DIRS);
+        assert_eq!(s.next_folder_id, MAX_EXTRA_DIRS as u32 + 1);
+    }
+
+    #[test]
+    fn no_id_left_adds_nothing() {
+        let mut s = dirs_of(&[(u32::MAX, "/a")]);
+        s.sanitize();
+        assert_eq!(ids(&s), [u32::MAX]);
+        assert!(!s.add_extra_dir("/b".into()));
+        let mut s = Settings { next_folder_id: u32::MAX, ..Settings::default() };
+        assert!(!s.add_extra_dir("/b".into()));
+        assert!(s.extra_dirs.is_empty());
+    }
+
+    #[test]
+    fn descriptions_have_no_control_characters_and_a_length_limit() {
+        assert_eq!(short_label("a\0b\nc\u{7}"), "abc");
+        let long = "x".repeat(200);
+        let l = short_label(&long);
+        assert_eq!(l.chars().count(), 60);
+        assert!(l.ends_with('…'));
+        let mut s = Settings::default();
+        s.add_extra_dir(format!("/x/{long}\u{1}").into());
+        let d = s.action_description("folder1");
+        assert!(d.starts_with("Capture area to xxx"));
+        assert!(!d.chars().any(|c| c.is_control()));
+        assert!(d.chars().count() < 90);
+    }
+
+    #[test]
+    fn create_new_takes_the_next_name() {
+        let dir = std::env::temp_dir().join(format!("lightsnap-test-{}-a", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, _) = create_new_in(&dir, "Shot", "png").unwrap();
+        let (b, _) = create_new_in(&dir, "Shot", "png").unwrap();
+        assert_eq!(a.file_name().unwrap(), "Shot.png");
+        assert_eq!(b.file_name().unwrap(), "Shot (2).png");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn create_new_does_not_follow_a_dangling_symlink() {
+        let dir = std::env::temp_dir().join(format!("lightsnap-test-{}-b", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("elsewhere.txt");
+        std::os::unix::fs::symlink(&target, dir.join("Shot.png")).unwrap();
+        let (p, _) = create_new_in(&dir, "Shot", "png").unwrap();
+        assert_eq!(p.file_name().unwrap(), "Shot (2).png");
+        assert!(!target.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -2,18 +2,34 @@
 
 use super::*;
 
-pub(super) fn save_image(img: &image::RgbaImage, dest: &Path, jpeg_quality: u8) -> Result<(), String> {
+/// The picture as the bytes of a file; the format follows the extension of `dest`.
+pub(super) fn encode_image(img: &image::RgbaImage, dest: &Path, jpeg_quality: u8) -> Result<Vec<u8>, String> {
     let ext = dest.extension().and_then(|e| e.to_str()).unwrap_or("png").to_lowercase();
+    let mut out = std::io::Cursor::new(Vec::new());
     if ext == "jpg" || ext == "jpeg" {
         let rgb = image::DynamicImage::ImageRgba8(img.clone()).to_rgb8();
-        let file = std::fs::File::create(dest).map_err(|e| e.to_string())?;
-        let mut w = std::io::BufWriter::new(file);
-        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut w, jpeg_quality.clamp(10, 100))
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, jpeg_quality.clamp(10, 100))
             .encode_image(&rgb)
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
     } else {
-        img.save(dest).map_err(|e| e.to_string())
+        let fmt = image::ImageFormat::from_extension(&ext).unwrap_or(image::ImageFormat::Png);
+        img.write_to(&mut out, fmt).map_err(|e| e.to_string())?;
     }
+    Ok(out.into_inner())
+}
+
+/// Writes `bytes` into a new file in `dir` named `stem.ext` (or the next free "(n)" name);
+/// the file is made in one step that never overwrites or follows a link. A failed
+/// write leaves no half file behind.
+pub(super) fn write_new(dir: &Path, stem: &str, ext: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
+    use std::io::Write;
+    let (path, mut f) = crate::settings::create_new_in(dir, stem, ext)?;
+    if let Err(e) = f.write_all(bytes) {
+        drop(f);
+        let _ = std::fs::remove_file(&path);
+        return Err(e);
+    }
+    Ok(path)
 }
 
 pub(super) fn short_path(p: &Path) -> String {
@@ -173,14 +189,18 @@ impl LightSnap {
         platform::set_clipboard(image, tiff, path)
     }
 
-    /// Writes the captured picture `src` (a PNG) to `dest` in the chosen image format.
-    pub(super) fn save_capture(&self, src: &Path, dest: &Path) -> bool {
-        match self.settings.format {
-            crate::settings::ImageFormat::Png => std::fs::copy(src, dest).is_ok(),
-            crate::settings::ImageFormat::Jpg => image::open(src)
-                .map(|i| save_image(&i.to_rgba8(), dest, self.settings.jpeg_quality).is_ok())
-                .unwrap_or(false),
-        }
+    /// Writes the captured picture `src` (a PNG) into a new file `name` in `dir`, in the
+    /// chosen image format. Returns the path of the file.
+    pub(super) fn save_capture(&self, src: &Path, dir: &Path, name: &str) -> Option<PathBuf> {
+        let ext = self.settings.format.ext();
+        let bytes = match self.settings.format {
+            crate::settings::ImageFormat::Png => std::fs::read(src).ok()?,
+            crate::settings::ImageFormat::Jpg => {
+                let img = image::open(src).ok()?;
+                encode_image(&img.to_rgba8(), Path::new(&format!("x.{ext}")), self.settings.jpeg_quality).ok()?
+            }
+        };
+        write_new(dir, name, ext, &bytes).ok()
     }
 
     pub(super) fn save_picture(&mut self, save_as: bool) -> Option<PathBuf> {
@@ -209,17 +229,27 @@ impl LightSnap {
         let q = self.settings.jpeg_quality;
         let ed = self.ed.as_mut()?;
         ed.commit_text();
-        let dest = if let Some(d) = dest_override {
-            d
+        // A chosen file (Save As) or the picture's own file is written again; a new picture
+        // gets a new file in the save folder.
+        let target = if let Some(d) = dest_override {
+            Some(d)
         } else {
             match &ed.saved {
-                Some(p) if ed.saved_name == ed.name && p.extension().is_some_and(|e| e == fmt.ext()) => p.clone(),
-                _ => self.settings.free_path(&ed.name, fmt.ext()),
+                Some(p) if ed.saved_name == ed.name && p.extension().is_some_and(|e| e == fmt.ext()) => Some(p.clone()),
+                _ => None,
             }
         };
         let img = ed.flatten(&font);
-        match save_image(&img, &dest, q) {
-            Ok(()) => {
+        let probe = target.clone().unwrap_or_else(|| PathBuf::from(format!("x.{}", fmt.ext())));
+        let written = encode_image(&img, &probe, q).and_then(|bytes| match &target {
+            Some(d) => std::fs::write(d, bytes).map(|_| d.clone()).map_err(|e| e.to_string()),
+            None => {
+                let _ = std::fs::create_dir_all(&self.settings.save_dir);
+                write_new(&self.settings.save_dir, &ed.name, fmt.ext(), &bytes).map_err(|e| e.to_string())
+            }
+        });
+        match written {
+            Ok(dest) => {
                 ed.saved = Some(dest.clone());
                 ed.saved_name = ed.name.clone();
                 self.recent_dirty = true;
@@ -292,12 +322,15 @@ impl LightSnap {
             }
         }
         let _ = std::fs::create_dir_all(&dir);
-        let mut dest = dir.join(format!("{}.{ext}", crate::settings::sanitize(&v.name)));
-        let mut n = 2;
-        while dest.exists() {
-            dest = dir.join(format!("{} ({n}).{ext}", crate::settings::sanitize(&v.name)));
-            n += 1;
-        }
+        // Reserve the name by making the file; the export then fills it. (ffmpeg opens the
+        // path itself, so that last step can't take the open file.)
+        let dest = match crate::settings::create_new_in(&dir, &v.name, &ext) {
+            Ok((p, _)) => p,
+            Err(e) => {
+                self.toast(format!("Could not save the video: {e}"), None);
+                return;
+            }
+        };
         let opts = crate::video::ExportOptions {
             trim: if v.is_trimmed() { Some(v.trim) } else { None },
             format: if v.ffmpeg.is_some() { fmt } else { crate::settings::VideoFormat::Mp4 },
@@ -308,7 +341,12 @@ impl LightSnap {
         let (path, ff) = (v.path.clone(), v.ffmpeg.clone());
         let (tx, rx) = channel();
         std::thread::spawn(move || {
-            let _ = tx.send(VideoView::export(path, ff, opts, dest));
+            let res = VideoView::export(path, ff, opts, dest.clone());
+            if res.is_err() {
+                // No empty file for a failed export.
+                let _ = std::fs::remove_file(&dest);
+            }
+            let _ = tx.send(res);
         });
         self.video_saving = Some(rx);
         self.copy_after_save = then_copy;

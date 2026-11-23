@@ -4,7 +4,7 @@
 use crate::icons::{self, Icon};
 use crate::settings::{
     AfterCapture, ClipFormat, HOTKEY_ACTIONS, Hotkey, ImageFormat, MAX_EXTRA_DIRS, Settings, VIDEO_HOTKEY_ACTIONS,
-    VideoFormat, dir_name, folder_action,
+    VideoFormat, dir_name, folder_action, short_label,
 };
 use egui::{
     Align, Align2, Color32, FontId, Key, Layout, Rect, Sense, Stroke, Ui, Vec2, ViewportBuilder, ViewportCommand,
@@ -745,7 +745,7 @@ impl Prefs {
 /// one "To <folder>" for each extra folder (short, so the folder name fits; the desktop's
 /// own list says "Capture area to <folder>").
 fn screenshot_actions(s: &Settings) -> Vec<(String, String)> {
-    let folders = s.extra_dirs.iter().map(|d| (folder_action(d.id), format!("To {}", dir_name(&d.path))));
+    let folders = s.extra_dirs.iter().map(|d| (folder_action(d.id), format!("To {}", short_label(&dir_name(&d.path)))));
     HOTKEY_ACTIONS
         .iter()
         .filter(|(id, _)| *id != "record")

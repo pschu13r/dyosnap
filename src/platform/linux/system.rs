@@ -9,9 +9,24 @@ pub fn open_path(path: &Path) {
     let _ = Command::new("xdg-open").arg(path).spawn();
 }
 
+/// The `file://` URI of a path: bytes other than letters, digits, `-._~` and `/` are
+/// written as %XX, so "%", "#", "?" and spaces in a name stay part of the name.
+fn file_uri(path: &Path) -> String {
+    use std::os::unix::ffi::OsStrExt;
+    let mut uri = String::from("file://");
+    for &b in path.as_os_str().as_bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~' | b'/') {
+            uri.push(b as char);
+        } else {
+            uri.push_str(&format!("%{b:02X}"));
+        }
+    }
+    uri
+}
+
 /// Shows a file in the file manager, selected.
 pub fn reveal_path(path: &Path) {
-    let uri = format!("file://{}", path.display());
+    let uri = file_uri(path);
     let shown = pollster::block_on(async {
         let c = zbus::Connection::session().await?;
         c.call_method(
@@ -255,3 +270,16 @@ pub fn mic_status() -> crate::platform::MicStatus {
     crate::platform::MicStatus::Allowed
 }
 pub fn open_privacy(_pane: crate::platform::Pane) {}
+
+#[cfg(test)]
+mod tests {
+    use super::file_uri;
+    use std::path::Path;
+
+    #[test]
+    fn file_uris_are_percent_encoded() {
+        assert_eq!(file_uri(Path::new("/home/a/Shot.png")), "file:///home/a/Shot.png");
+        assert_eq!(file_uri(Path::new("/home/a/My 100%#1?.png")), "file:///home/a/My%20100%25%231%3F.png");
+        assert_eq!(file_uri(Path::new("/h/Bär.png")), "file:///h/B%C3%A4r.png");
+    }
+}
