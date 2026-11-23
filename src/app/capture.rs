@@ -189,9 +189,14 @@ impl LightSnap {
         if let Some(v) = &mut self.video {
             v.stop();
         }
-        // Get the window out of the way. Also when it was shown without show_window
-        // (macOS can open it at launch), so the flag alone is not enough.
-        let was_visible = self.visible || ctx.input(|i| i.viewport().occluded == Some(false));
+        // Get the window out of the way. Also when it was shown without show_window, so the
+        // flag alone is not enough. macOS: ask AppKit; egui reports a window that was never
+        // shown as "not covered", which brought the home window up after the first capture.
+        #[cfg(target_os = "macos")]
+        let shown = platform::window_visible("LightSnap");
+        #[cfg(not(target_os = "macos"))]
+        let shown = ctx.input(|i| i.viewport().occluded == Some(false));
+        let was_visible = self.visible || shown;
         self.hide_window(ctx);
         // Linux: an area is chosen in LightSnap itself, on a frozen picture of the screen, as
         // for recordings. The desktop's own pickers ask for an extra click (GNOME) or offer

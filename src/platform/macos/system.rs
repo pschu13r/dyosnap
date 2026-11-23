@@ -208,6 +208,30 @@ pub fn raise_window(title: &str) {
     }
 }
 
+/// Whether a window with exactly this title is on screen. The main window can be shown
+/// without the app knowing (macOS restores it); this asks AppKit itself.
+pub fn window_visible(title: &str) -> bool {
+    let Some(cls) = AnyClass::get(c"NSApplication") else { return false };
+    unsafe {
+        let Some(app): Option<Retained<AnyObject>> = msg_send![cls, sharedApplication] else { return false };
+        let Some(windows): Option<Retained<AnyObject>> = msg_send![&*app, windows] else { return false };
+        let n: usize = msg_send![&*windows, count];
+        for i in 0..n {
+            let Some(w): Option<Retained<AnyObject>> = msg_send![&*windows, objectAtIndex: i] else { continue };
+            let Some(t): Option<Retained<AnyObject>> = msg_send![&*w, title] else { continue };
+            let s: *const std::ffi::c_char = msg_send![&*t, UTF8String];
+            if s.is_null() || std::ffi::CStr::from_ptr(s).to_string_lossy() != title {
+                continue;
+            }
+            let visible: Bool = msg_send![&*w, isVisible];
+            if visible.as_bool() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 fn main_app_service() -> Option<Retained<AnyObject>> {
     let cls = AnyClass::get(c"SMAppService")?;
     unsafe { msg_send![cls, mainAppService] }
