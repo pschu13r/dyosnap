@@ -84,7 +84,7 @@ impl RecFrame {
             .name("rec-frame".into())
             .spawn(move || {
                 if let Err(e) = run(area, can_pause, rx, act_tx, &ready_tx) {
-                    log::info!(target: "lightsnap", "no recording frame: {e}");
+                    log::info!(target: "dyosnap", "no recording frame: {e}");
                     let _ = ready_tx.try_send(false);
                 }
             })
@@ -458,7 +458,7 @@ fn run(
                 surface.set_input_region(Some(region.wl_region()));
             }
         }
-        let layer = layer_shell.create_layer_surface(&qh, surface, Layer::Overlay, Some("lightsnap-frame"), Some(output));
+        let layer = layer_shell.create_layer_surface(&qh, surface, Layer::Overlay, Some("dyosnap-frame"), Some(output));
         layer.set_anchor(Anchor::TOP | Anchor::LEFT);
         // Place it from the screen's corner, not moved aside by panels.
         layer.set_exclusive_zone(-1);
@@ -484,7 +484,7 @@ fn run(
     st.pool = Some(SlotPool::new(bytes * 2, &st.shm).map_err(|e| e.to_string())?);
     queue.roundtrip(&mut st).map_err(|e| e.to_string())?;
     let _ = ready.try_send(true);
-    log::info!(target: "lightsnap", "recording frame shown: {} bars and the control bar", st.frame.len());
+    log::info!(target: "dyosnap", "recording frame shown: {} bars and the control bar", st.frame.len());
 
     // Wait for commands, and keep answering the compositor (it may close the surfaces).
     loop {

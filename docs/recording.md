@@ -1,8 +1,8 @@
 # Screen recording on macOS and Linux
 
 How a recording runs, from the shortcut to the video trimmer. Both systems share the UI,
-the recorder and ffmpeg as the encoder. They differ in how LightSnap gets at the screen:
-on macOS ffmpeg reads it itself, on Linux (Wayland) LightSnap gets it from the desktop and
+the recorder and ffmpeg as the encoder. They differ in how DyoSnap gets at the screen:
+on macOS ffmpeg reads it itself, on Linux (Wayland) DyoSnap gets it from the desktop and
 hands it to ffmpeg.
 
 See [README: Architecture](../README.md#architecture) for the component diagram.
@@ -11,11 +11,11 @@ See [README: Architecture](../README.md#architecture) for the component diagram.
 sequenceDiagram
     autonumber
     actor U as User
-    participant App as LightSnap UI<br/>(egui)
+    participant App as DyoSnap UI<br/>(egui)
     participant Rec as Recorder<br/>(record.rs)
     participant Mac as macOS<br/>(screencapture)
     participant Portal as xdg-desktop-portal<br/>(Linux)
-    participant PW as PipeWire and writer threads<br/>(Linux, inside LightSnap)
+    participant PW as PipeWire and writer threads<br/>(Linux, inside DyoSnap)
     participant FF as ffmpeg<br/>(child process)
 
     U->>App: Shortcut or tray menu: Record
@@ -85,7 +85,7 @@ quality settings). Linux cannot record without ffmpeg.
 **Both systems**
 
 - **ffmpeg runs as its own process.** The app only shows a timer and stays small and idle.
-  ffmpeg is called as a separate program and not linked, so LightSnap can stay MIT.
+  ffmpeg is called as a separate program and not linked, so DyoSnap can stay MIT.
 - **One encode path.** ffmpeg crops and encodes on both systems, so the recorder code is the
   same. Only the input and the encoder names differ.
 - **Stop with `q` on stdin.** ffmpeg then stops cleanly and finishes the MP4 file. After 8 s
@@ -97,14 +97,14 @@ quality settings). Linux cannot record without ffmpeg.
   and the area can be dragged to another screen.
 - **ffmpeg's error output goes to a log file.** A full pipe could stall a long recording.
 - **Frame rate and quality are settings.** Built-in recorders make huge files that take
-  ages to send. LightSnap keeps them small.
+  ages to send. DyoSnap keeps them small.
 
 **macOS**
 
 - **ffmpeg reads the screen through AVFoundation.** It is ffmpeg's screen and microphone
   input on macOS. The cursor and clicks come from AVFoundation too.
-- **LightSnap ships its own ffmpeg, built under the LGPL.** Ready-made macOS builds almost
-  always contain x264 and are GPL. The own build has only what LightSnap needs: AVFoundation
+- **DyoSnap ships its own ffmpeg, built under the LGPL.** Ready-made macOS builds almost
+  always contain x264 and are GPL. The own build has only what DyoSnap needs: AVFoundation
   input, Apple's hardware H.264 encoder and Apple's AAC encoder. That keeps it small.
 - **A patch fixes lost sound.** ffmpeg's AVFoundation input keeps only one audio frame.
   While a video frame is read, newer audio overwrites older audio, so recordings lost about
@@ -117,11 +117,11 @@ quality settings). Linux cannot record without ffmpeg.
 - **Wayland only, no X11.** X11 is de facto replaced: Ubuntu, Fedora and KDE use Wayland by
   default. Supporting X11 too would double the platform code for a shrinking share of desktops.
 - **Screen access goes through the ScreenCast portal.** Wayland lets no app read the screen.
-  The portal asks the person once; the restore token remembers the answer. LightSnap asks
+  The portal asks the person once; the restore token remembers the answer. DyoSnap asks
   for all screens: GNOME gives one stream per screen, KDE one per screen or, with "full
   workspace", one stream of the whole desktop without a position. Each screen is cut out of
   the stream that shows it (`locate` in `recording.rs`).
-- **LightSnap reads PipeWire itself.** The ffmpeg in current Ubuntu cannot read PipeWire.
+- **DyoSnap reads PipeWire itself.** The ffmpeg in current Ubuntu cannot read PipeWire.
 - **Frames go to ffmpeg through a named pipe, at a steady rate.** The compositor sends a
   frame only when the screen changes. The writer repeats the newest frame `fps` times a
   second, so the video has an even frame rate.
@@ -132,7 +132,7 @@ quality settings). Linux cannot record without ffmpeg.
 - **The area is chosen in the full-screen main window.** Wayland can neither place windows
   nor reliably put a new one in front, and it tells no app where the mouse is. The window
   goes full screen where the compositor opens it (usually the screen with the mouse) and
-  shows that screen's picture. Only if that screen was not shared, LightSnap moves it to a
+  shows that screen's picture. Only if that screen was not shared, DyoSnap moves it to a
   shared one. A frame can't reach across screens on Linux. For the same
   reason there is no control bar while recording: the tray and the shortcuts control it.
   Where no red frame can be drawn (GNOME), a 3 s countdown shows the area first.
@@ -154,7 +154,7 @@ quality settings). Linux cannot record without ffmpeg.
   desktops have no such list and keep their own picker.
 - **The clipboard on GNOME goes through plain Wayland.** GNOME has no data-control
   protocol, so copying (pictures, text, file references) and reading ("Open from
-  Clipboard") need LightSnap's focus; reading waits for the window to get it.
+  Clipboard") need DyoSnap's focus; reading waits for the window to get it.
 - **The control bar is one more layer surface, below the area.** Same place, buttons and
   colors as on macOS, drawn with tiny-skia and ab_glyph; it takes clicks (the frame
   doesn't) and hands them to the app (`RecFrame::take_action`). GNOME has none: the tray
@@ -166,5 +166,5 @@ quality settings). Linux cannot record without ffmpeg.
   KDE Plasma, Sway, Hyprland and COSMIC support it. GNOME does not, and gets no frame:
   only a Shell extension or X11 could draw one there, and both are not worth it. The
   recording is cropped to the area, so the frame is not in the video.
-- **ffmpeg comes from the system.** LightSnap does not ship it on Linux, so encoding with
+- **ffmpeg comes from the system.** DyoSnap does not ship it on Linux, so encoding with
   libx264 is fine. Microphones come from PulseAudio or PipeWire's Pulse server.

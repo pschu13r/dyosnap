@@ -98,7 +98,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn tmp_dir() -> PathBuf {
-        let d = std::env::temp_dir().join(format!("lightsnap-cliptest-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("dyosnap-cliptest-{}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
         d
     }

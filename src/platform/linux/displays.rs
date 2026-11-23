@@ -96,7 +96,7 @@ fn outputs() -> Vec<(Display, Option<String>)> {
         .collect()
 }
 
-/// Wayland does not share the mouse position outside LightSnap's own windows.
+/// Wayland does not share the mouse position outside DyoSnap's own windows.
 pub fn mouse_position() -> Option<Pos2> {
     None
 }

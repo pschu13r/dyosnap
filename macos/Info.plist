@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>io.github.pschu13r.lightsnap</string>
+    <string>io.github.pschu13r.DyoSnap</string>
     <key>CFBundleName</key>
-    <string>LightSnap</string>
+    <string>DyoSnap</string>
     <key>CFBundleDisplayName</key>
-    <string>LightSnap</string>
+    <string>DyoSnap</string>
     <key>CFBundleExecutable</key>
-    <string>lightsnap</string>
+    <string>dyosnap</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundlePackageType</key>
@@ -30,7 +30,7 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>LightSnap records your microphone only when you turn on sound for a screen recording.</string>
+    <string>DyoSnap records your microphone only when you turn on sound for a screen recording.</string>
     <key>NSHumanReadableCopyright</key>
     <string>MIT License</string>
 </dict>

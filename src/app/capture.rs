@@ -172,7 +172,7 @@ pub(super) fn countdown_overlay(ui: &mut Ui, painter: &egui::Painter, full: Rect
     SelectOut::None
 }
 
-impl LightSnap {
+impl DyoSnap {
     pub(super) fn start_capture(&mut self, ctx: &egui::Context, kind: CaptureKind, for_record: bool) {
         self.start_capture_ex(ctx, kind, for_record, None);
     }
@@ -189,13 +189,13 @@ impl LightSnap {
         if let Some(v) = &mut self.video {
             v.stop();
         }
-        // Every LightSnap window goes away while capturing: the main window and Preferences.
+        // Every DyoSnap window goes away while capturing: the main window and Preferences.
         // None comes back unless the capture opens the editor (or fails). `was_visible` only
         // tells whether to wait for them to vanish before the picture is taken. Also when the
         // main window was shown without show_window, so the flag alone is not enough. macOS:
         // ask AppKit; egui reports a window that was never shown as "not covered".
         #[cfg(target_os = "macos")]
-        let shown = platform::window_visible("LightSnap");
+        let shown = platform::window_visible("DyoSnap");
         #[cfg(not(target_os = "macos"))]
         let shown = ctx.input(|i| i.viewport().occluded == Some(false));
         let was_visible = self.visible || self.prefs.open || shown;
@@ -205,7 +205,7 @@ impl LightSnap {
             self.handle_prefs_out(ctx, out);
         }
         self.hide_window(ctx);
-        // Linux: an area is chosen in LightSnap itself, on a frozen picture of the screen, as
+        // Linux: an area is chosen in DyoSnap itself, on a frozen picture of the screen, as
         // for recordings. The desktop's own pickers ask for an extra click (GNOME) or offer
         // no area at all (KDE). Full-screen and timed captures go the same way, with a window
         // that takes the picture at once: on GNOME only a focused window can set the
@@ -242,7 +242,7 @@ impl LightSnap {
             if let (true, CaptureKind::Timed(s)) = (select_shot, kind) {
                 std::thread::sleep(Duration::from_secs(s as u64));
             }
-            // Before the picture: LightSnap's own window is not open yet.
+            // Before the picture: DyoSnap's own window is not open yet.
             #[cfg(target_os = "linux")]
             if select_shot && kind == CaptureKind::Window {
                 if let Ok(mut w) = windows2.lock() {
@@ -478,7 +478,7 @@ impl LightSnap {
                         }
                         None => SelDrag::New(p),
                     });
-                    log::info!(target: "lightsnap", "select: drag started on screen {si} at {p:?}");
+                    log::info!(target: "dyosnap", "select: drag started on screen {si} at {p:?}");
                 }
                 if resp.dragged() || (global.is_some() && drag.is_some()) {
                     if let (Some(d), Some(p)) = (*drag, pointer) {
@@ -521,7 +521,7 @@ impl LightSnap {
                 }
                 if (resp.drag_stopped() || released) && drag.is_some() {
                     *drag = None;
-                    log::info!(target: "lightsnap", "select: drag stopped on screen {si}, area {rect:?}");
+                    log::info!(target: "dyosnap", "select: drag stopped on screen {si}, area {rect:?}");
                     let min = if shot_mode { 3.0 } else { 16.0 };
                     if rect.is_some_and(|r| r.width() < min || r.height() < min) {
                         *rect = None;
@@ -692,7 +692,7 @@ impl LightSnap {
                     body(ui, egui::ViewportClass::Root)
                 }
                 Some(_) => SelectOut::None,
-                None => crate::show_immediate(ctx, ViewportId::from_hash_of(("lightsnap_select", si)), builder, body),
+                None => crate::show_immediate(ctx, ViewportId::from_hash_of(("dyosnap_select", si)), builder, body),
             };
             if !matches!(res, SelectOut::None) {
                 out = res;
@@ -783,7 +783,7 @@ impl LightSnap {
                     .with_taskbar(false)
                     .with_has_shadow(false)
                     .with_active(false);
-                crate::show_immediate(ctx, ViewportId::from_hash_of(("lightsnap_frame", bi)), builder, |ui, _| {
+                crate::show_immediate(ctx, ViewportId::from_hash_of(("dyosnap_frame", bi)), builder, |ui, _| {
                     ui.painter().rect_filled(ui.max_rect().expand(2.0), 0.0, color);
                 });
             }
@@ -810,7 +810,7 @@ impl LightSnap {
             .with_resizable(false)
             .with_taskbar(false)
             .with_active(false);
-        crate::show_immediate(ctx, ViewportId::from_hash_of("lightsnap_recbar"), builder, |ui, _| {
+        crate::show_immediate(ctx, ViewportId::from_hash_of("dyosnap_recbar"), builder, |ui, _| {
             let mut act = None;
             Frame::new().fill(Color32::from_rgb(236, 236, 238)).inner_margin(Margin::symmetric(8, 6)).show(ui, |ui| {
                 ui.set_min_size(ui.available_size());

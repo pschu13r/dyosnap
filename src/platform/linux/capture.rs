@@ -32,7 +32,7 @@ fn portal_screenshot(interactive: bool) -> Option<PathBuf> {
         Err(e) => {
             // Cancelled is normal; anything else goes to the log.
             if !matches!(e, ashpd::Error::Response(ashpd::desktop::ResponseError::Cancelled)) {
-                log::warn!(target: "lightsnap", "screenshot portal: {e}");
+                log::warn!(target: "dyosnap", "screenshot portal: {e}");
             }
             None
         }
@@ -40,16 +40,16 @@ fn portal_screenshot(interactive: bool) -> Option<PathBuf> {
 }
 
 /// KDE's portal saves the picture in the Pictures folder and fails without a reason when
-/// that folder is missing (minimal installs, or deleted). Make it first; LightSnap moves
+/// that folder is missing (minimal installs, or deleted). Make it first; DyoSnap moves
 /// the picture out again, so the folder stays empty.
 fn ensure_pictures_dir() {
     let Some(dir) = dirs::picture_dir().or_else(|| dirs::home_dir().map(|h| h.join("Pictures"))) else { return };
     if !dir.exists() && std::fs::create_dir_all(&dir).is_ok() {
-        log::info!(target: "lightsnap", "made the missing Pictures folder {} for the screenshot portal", dir.display());
+        log::info!(target: "dyosnap", "made the missing Pictures folder {} for the screenshot portal", dir.display());
     }
 }
 
-/// Moves the portal's file into LightSnap's temp folder. The desktop may have saved it
+/// Moves the portal's file into DyoSnap's temp folder. The desktop may have saved it
 /// in the person's Pictures folder; that copy was made for us and goes away.
 fn take_file(src: &Path, prefix: &str) -> Option<PathBuf> {
     let out = temp_file(prefix, "png");
@@ -114,7 +114,7 @@ pub fn screenshot_allowed() -> bool {
 }
 
 /// Asks the desktop for that permission by taking one picture and throwing it away.
-/// GNOME only asks while one of LightSnap's windows is in front.
+/// GNOME only asks while one of DyoSnap's windows is in front.
 pub fn ask_screenshot_permission() -> bool {
     match portal_screenshot(false) {
         Some(p) => {

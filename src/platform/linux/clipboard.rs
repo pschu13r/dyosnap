@@ -1,5 +1,5 @@
 //! The clipboard, through arboard (Wayland data-control, else XWayland). On GNOME, which
-//! has no data-control, copying goes through plain Wayland while LightSnap has the focus
+//! has no data-control, copying goes through plain Wayland while DyoSnap has the focus
 //! (see `wl_clipboard`), and through arboard only otherwise. The clipboard objects stay
 //! alive: on Linux the copied data is served by this app until something else is copied.
 
@@ -11,7 +11,7 @@ static CLIPBOARD: Mutex<Option<arboard::Clipboard>> = Mutex::new(None);
 fn with<R>(f: impl FnOnce(&mut arboard::Clipboard) -> Option<R>) -> Option<R> {
     let mut g = CLIPBOARD.lock().ok()?;
     if g.is_none() {
-        *g = arboard::Clipboard::new().map_err(|e| log::warn!(target: "lightsnap", "clipboard: {e}")).ok();
+        *g = arboard::Clipboard::new().map_err(|e| log::warn!(target: "dyosnap", "clipboard: {e}")).ok();
     }
     f(g.as_mut()?)
 }

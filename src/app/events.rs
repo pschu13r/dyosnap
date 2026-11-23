@@ -78,7 +78,7 @@ pub(super) fn build_menu(recording: bool, st: &Settings) -> Vec<platform::MenuEn
     ]
 }
 
-impl LightSnap {
+impl DyoSnap {
     pub(super) fn setup_hotkeys(&mut self, ctx: &egui::Context, tx: Sender<AppEvent>) {
         let ctx = ctx.clone();
         self.hotkeys = platform::Hotkeys::new(std::sync::Arc::new(move |id: String| {

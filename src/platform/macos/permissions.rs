@@ -16,7 +16,7 @@ unsafe extern "C" {
 #[link(name = "AVFoundation", kind = "framework")]
 unsafe extern "C" {}
 
-/// Whether LightSnap may read the screen.
+/// Whether DyoSnap may read the screen.
 pub fn screen_recording_allowed() -> bool {
     unsafe { CGPreflightScreenCaptureAccess() }
 }

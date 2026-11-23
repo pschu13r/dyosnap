@@ -182,7 +182,7 @@ pub(super) fn big_button(ui: &mut Ui, label: &str, key: &str, w: f32, enabled: b
     resp
 }
 
-impl LightSnap {
+impl DyoSnap {
     pub(super) fn top_bar(&mut self, ui: &mut Ui) -> Option<Action> {
         let mut action = None;
         let ctx = ui.ctx().clone();
@@ -304,7 +304,7 @@ impl LightSnap {
                         .on_hover_text("File name");
                     }
                     None => {
-                        ui.painter().text(name_rect.center(), Align2::CENTER_CENTER, "LightSnap", FontId::proportional(BAR_FONT), DIM_TEXT);
+                        ui.painter().text(name_rect.center(), Align2::CENTER_CENTER, "DyoSnap", FontId::proportional(BAR_FONT), DIM_TEXT);
                     }
                 }
                 let _ = &ctx;
@@ -360,7 +360,7 @@ impl LightSnap {
             action = Some(Action::Settings);
         }
         ui.separator();
-        if ui.button("Quit LightSnap").clicked() {
+        if ui.button("Quit DyoSnap").clicked() {
             action = Some(Action::Quit);
         }
         action

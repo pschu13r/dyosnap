@@ -5,7 +5,7 @@
 //! through XWayland. Without XWayland nothing is copied.
 //!
 //! Every Wayland app may set the clipboard while one of its windows has the keyboard
-//! focus, with the serial of a recent input event. LightSnap copies a screenshot right
+//! focus, with the serial of a recent input event. DyoSnap copies a screenshot right
 //! when the mouse is let go on its area selection, which has the focus then. This module
 //! listens to the seat on the main window's own Wayland connection (`attach`), so it
 //! has that serial, and serves the copied data until something else is copied. Reading
@@ -54,11 +54,11 @@ struct Attached {
 }
 
 static ATTACHED: Mutex<Option<Attached>> = Mutex::new(None);
-/// A surface of LightSnap has the keyboard focus (as the compositor last said).
+/// A surface of DyoSnap has the keyboard focus (as the compositor last said).
 static FOCUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Whether copying can work now: the desktop needs no focus for it (data-control), or
-/// LightSnap has the focus.
+/// DyoSnap has the focus.
 pub fn ready() -> bool {
     let needs_focus = ATTACHED.lock().ok().is_some_and(|g| g.as_ref().is_some_and(|a| !a.data_control));
     !needs_focus || FOCUSED.load(std::sync::atomic::Ordering::Relaxed)
@@ -89,7 +89,7 @@ pub fn attach(window: &winit::window::Window) {
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let spawned = std::thread::Builder::new().name("wl-clipboard".into()).spawn(move || {
         if let Err(e) = run(conn, rx, &ready_tx) {
-            log::warn!(target: "lightsnap", "wayland clipboard: {e}");
+            log::warn!(target: "dyosnap", "wayland clipboard: {e}");
             let _ = ready_tx.try_send(None);
         }
     });
@@ -97,13 +97,13 @@ pub fn attach(window: &winit::window::Window) {
         return;
     }
     if let Ok(Some(data_control)) = ready_rx.recv_timeout(Duration::from_secs(1)) {
-        log::info!(target: "lightsnap", "wayland clipboard attached (data-control: {data_control})");
+        log::info!(target: "dyosnap", "wayland clipboard attached (data-control: {data_control})");
         *g = Some(Attached { display, tx, data_control });
     }
 }
 
 /// Sets the clipboard through Wayland, if that is the way on this desktop (no data-control)
-/// and LightSnap has the focus. False means: use arboard.
+/// and DyoSnap has the focus. False means: use arboard.
 pub fn set(offer: Offer) -> bool {
     let tx = {
         let Ok(g) = ATTACHED.lock() else { return false };
@@ -120,7 +120,7 @@ pub fn set(offer: Offer) -> bool {
 }
 
 /// Reads the clipboard through Wayland, in the first of `mimes` it has, where that is the
-/// way (no data-control) and LightSnap has the focus. None means: nothing there, or use arboard.
+/// way (no data-control) and DyoSnap has the focus. None means: nothing there, or use arboard.
 pub fn read(mimes: &[&str]) -> Option<Vec<u8>> {
     let tx = {
         let g = ATTACHED.lock().ok()?;
@@ -173,7 +173,7 @@ fn run(conn: Connection, rx: mpsc::Receiver<Request>, ready: &mpsc::SyncSender<O
         while let Ok(req) = rx.try_recv() {
             // Take in events that winit read already, so serial and selection are current.
             let rt = queue.roundtrip(&mut st);
-            log::debug!(target: "lightsnap", "clipboard request: focused {} serial {:?} roundtrip {:?}", st.focused, st.serial, rt.is_ok());
+            log::debug!(target: "dyosnap", "clipboard request: focused {} serial {:?} roundtrip {:?}", st.focused, st.serial, rt.is_ok());
             match req {
                 Request::Set(offer, done) => {
                     let ok = match (st.focused, st.serial, &st.device) {
@@ -198,7 +198,7 @@ fn run(conn: Connection, rx: mpsc::Receiver<Request>, ready: &mpsc::SyncSender<O
                     let mime = have.and_then(|have| wanted.into_iter().find(|w| have.contains(w)));
                     match (offer, mime) {
                         (Some(offer), Some(mime)) => match receive(offer, &mime, &conn) {
-                            // Read in a thread: when LightSnap itself owns the clipboard,
+                            // Read in a thread: when DyoSnap itself owns the clipboard,
                             // this loop has to answer the request meanwhile.
                             Some(file) => {
                                 std::thread::spawn(move || {
@@ -275,7 +275,7 @@ fn read_all(mut f: std::fs::File) -> Option<Vec<u8>> {
 }
 
 /// Writes the copied bytes into the pipe of the app that pastes. In a thread: the other
-/// app may read slowly, and LightSnap must keep answering.
+/// app may read slowly, and DyoSnap must keep answering.
 fn serve(fd: OwnedFd, data: Arc<Vec<u8>>) {
     std::thread::spawn(move || {
         // Mutter hands out a non-blocking pipe: a full pipe would end the write after the
@@ -333,13 +333,13 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for State {
     fn event(st: &mut Self, _: &wl_keyboard::WlKeyboard, ev: wl_keyboard::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         match ev {
             wl_keyboard::Event::Enter { serial, .. } => {
-                log::debug!(target: "lightsnap", "clipboard: keyboard enter {serial}");
+                log::debug!(target: "dyosnap", "clipboard: keyboard enter {serial}");
                 st.focused = true;
                 FOCUSED.store(true, std::sync::atomic::Ordering::Relaxed);
                 st.serial = Some(serial);
             }
             wl_keyboard::Event::Leave { .. } => {
-                log::debug!(target: "lightsnap", "clipboard: keyboard leave");
+                log::debug!(target: "dyosnap", "clipboard: keyboard leave");
                 st.focused = false;
                 FOCUSED.store(false, std::sync::atomic::Ordering::Relaxed);
             }

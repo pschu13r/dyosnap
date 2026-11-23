@@ -1,10 +1,10 @@
 #!/bin/bash
-# Builds the ffmpeg that ships inside LightSnap.app, from the official source.
+# Builds the ffmpeg that ships inside DyoSnap.app, from the official source.
 #
 # License: LGPL 2.1 or later. No --enable-gpl, no --enable-nonfree, no x264.
 # Video is encoded with Apple's h264_videotoolbox, audio with aac_at.
 # Patches from macos/ffmpeg-*.patch are applied (see each file for why).
-# Only what LightSnap uses is built in: screen capture (avfoundation), sound output
+# Only what DyoSnap uses is built in: screen capture (avfoundation), sound output
 # for the player (audiotoolbox), mp4/mov/gif in and out, a handful of filters,
 # and local files only (no network).
 #

@@ -72,7 +72,7 @@ pub(super) fn recent_files(dir: &Path, n: usize) -> Vec<PathBuf> {
 
 /// Where the newest screenshot is kept (one file, replaced by each new capture).
 pub(super) fn latest_capture_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("LightSnap").join("latest-capture.png"))
+    dirs::config_dir().map(|d| d.join("DyoSnap").join("latest-capture.png"))
 }
 
 pub(super) fn is_picture(p: &Path) -> bool {
@@ -81,7 +81,7 @@ pub(super) fn is_picture(p: &Path) -> bool {
         .is_some_and(|e| matches!(e.to_lowercase().as_str(), "png" | "jpg" | "jpeg"))
 }
 
-impl LightSnap {
+impl DyoSnap {
     pub(super) fn open_file(&mut self, ctx: &egui::Context, p: &Path) {
         let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
         if matches!(ext.as_str(), "mp4" | "mov" | "m4v") {

@@ -20,16 +20,45 @@ mod linux;
 pub use linux::*;
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-compile_error!("LightSnap runs on macOS and Linux. A port adds src/platform/<os>/ (see src/platform/mod.rs).");
+compile_error!("DyoSnap runs on macOS and Linux. A port adds src/platform/<os>/ (see src/platform/mod.rs).");
 
 /// The app id. On Linux it names the .desktop file and is how the portals remember
 /// what was allowed.
-pub const APP_ID: &str = "io.github.pschu13r.LightSnap";
+pub const APP_ID: &str = "io.github.pschu13r.DyoSnap";
 
-/// The app id up to v0.4.2, before the GitHub account was renamed. `prepare()` moves
-/// what an older version left under it to the new id.
+/// The app ids of earlier versions: up to v0.4.2 (before the GitHub account was renamed),
+/// and LightSnap (up to v1.0.0, before the app became DyoSnap). `prepare()` moves what
+/// they left to the new id.
 #[cfg(target_os = "linux")]
-pub const OLD_APP_ID: &str = "io.github.badger12345.LightSnap";
+pub const OLD_APP_IDS: &[&str] = &["io.github.badger12345.LightSnap", "io.github.pschu13r.LightSnap"];
+
+/// LightSnap (up to v1.0.0) kept its files in folders with that name. Moves each to the
+/// DyoSnap folder if that does not exist yet: settings and screencast token (config),
+/// icons and temp fallback (cache), the logs. Runs at the very start, before anything
+/// writes to the new folders. The save folder is not touched: settings keep its path.
+pub fn migrate_old_folders() {
+    if let Some(d) = dirs::config_dir() {
+        move_dir(&d.join("LightSnap"), &d.join("DyoSnap"));
+    }
+    if let Some(d) = dirs::cache_dir() {
+        move_dir(&d.join("lightsnap"), &d.join("dyosnap"));
+    }
+    if let Some(new) = log_dir() {
+        #[cfg(target_os = "linux")]
+        let old = new.with_file_name("lightsnap");
+        #[cfg(not(target_os = "linux"))]
+        let old = new.with_file_name("LightSnap");
+        move_dir(&old, &new);
+    }
+}
+
+/// Renames the real folder `old` to `new`, unless `new` exists or `old` is missing or a link.
+fn move_dir(old: &std::path::Path, new: &std::path::Path) {
+    let is_dir = std::fs::symlink_metadata(old).is_ok_and(|m| m.file_type().is_dir());
+    if is_dir && std::fs::symlink_metadata(new).is_err() {
+        let _ = std::fs::rename(old, new);
+    }
+}
 
 /// The microphone permission (macOS; Linux never reads it).
 #[cfg_attr(target_os = "linux", allow(dead_code))]
@@ -119,19 +148,19 @@ fn temp_dir() -> PathBuf {
         // SAFETY: getuid has no preconditions and cannot fail.
         let uid = unsafe { libc::getuid() };
         #[cfg(target_os = "linux")]
-        let first = dirs::runtime_dir().map(|d| d.join("lightsnap")).unwrap_or_else(|| std::env::temp_dir().join(format!("lightsnap-{uid}")));
+        let first = dirs::runtime_dir().map(|d| d.join("dyosnap")).unwrap_or_else(|| std::env::temp_dir().join(format!("dyosnap-{uid}")));
         // macOS: $TMPDIR is already per user.
         #[cfg(not(target_os = "linux"))]
-        let first = std::env::temp_dir().join("lightsnap");
-        let fallback = dirs::cache_dir().map(|d| d.join("lightsnap").join("tmp"));
+        let first = std::env::temp_dir().join("dyosnap");
+        let fallback = dirs::cache_dir().map(|d| d.join("dyosnap").join("tmp"));
         for dir in std::iter::once(first).chain(fallback) {
             if private_dir(&dir, uid) {
                 return dir;
             }
-            log::warn!(target: "lightsnap", "temp folder {} is not private, not using it", dir.display());
+            log::warn!(target: "dyosnap", "temp folder {} is not private, not using it", dir.display());
         }
         // Last resort: a new folder with a name no one can guess ahead.
-        let dir = std::env::temp_dir().join(format!("lightsnap-{uid}-{}-{}", std::process::id(), random_u64()));
+        let dir = std::env::temp_dir().join(format!("dyosnap-{uid}-{}-{}", std::process::id(), random_u64()));
         let _ = private_dir(&dir, uid);
         dir
     })
@@ -151,7 +180,7 @@ fn private_dir(dir: &std::path::Path, uid: u32) -> bool {
         return false;
     }
     if meta.mode() & 0o077 != 0 {
-        // Ours, but made open by an older LightSnap: close it.
+        // Ours, but made open by an older DyoSnap: close it.
         return std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).is_ok();
     }
     true
@@ -235,16 +264,46 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
+    fn old_folder_moves_to_new_name() {
+        let base = std::env::temp_dir().join(format!("dyosnap-movetest-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let (old, new) = (base.join("LightSnap"), base.join("DyoSnap"));
+        // Nothing to move: no error, no new folder.
+        super::move_dir(&old, &new);
+        assert!(!new.exists());
+        // Moves with its content.
+        std::fs::create_dir(&old).unwrap();
+        std::fs::write(old.join("settings.json"), "{}").unwrap();
+        super::move_dir(&old, &new);
+        assert!(!old.exists());
+        assert_eq!(std::fs::read_to_string(new.join("settings.json")).unwrap(), "{}");
+        // An existing new folder wins: the old one stays as it is.
+        std::fs::create_dir(&old).unwrap();
+        std::fs::write(old.join("settings.json"), "old").unwrap();
+        super::move_dir(&old, &new);
+        assert!(old.join("settings.json").is_file());
+        assert_eq!(std::fs::read_to_string(new.join("settings.json")).unwrap(), "{}");
+        // A link called LightSnap is not followed.
+        let (link, target, fresh) = (base.join("link-old"), base.join("elsewhere"), base.join("link-new"));
+        std::fs::create_dir(&target).unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        super::move_dir(&link, &fresh);
+        assert!(!fresh.exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn temp_folder_is_private() {
         let uid = unsafe { libc::getuid() };
-        let base = std::env::temp_dir().join(format!("lightsnap-privtest-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("dyosnap-privtest-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&base).unwrap();
         // New folder: made with 0700.
         let fresh = base.join("fresh");
         assert!(super::private_dir(&fresh, uid));
         assert_eq!(std::fs::metadata(&fresh).unwrap().permissions().mode() & 0o777, 0o700);
-        // Our own open folder (older LightSnap): closed to 0700.
+        // Our own open folder (older DyoSnap): closed to 0700.
         let open = base.join("open");
         std::fs::create_dir(&open).unwrap();
         std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o775)).unwrap();

@@ -29,13 +29,13 @@ pub fn activate(window: &winit::window::Window) {
     let Ok(surface) = WlSurface::from_id(&conn, id) else { return };
     let Ok((globals, queue)) = registry_queue_init::<Activate>(&conn) else { return };
     let Ok(activation) = globals.bind::<XdgActivationV1, _, _>(&queue.handle(), 1..=1, ()) else {
-        log::info!(target: "lightsnap", "no xdg-activation on this desktop");
+        log::info!(target: "dyosnap", "no xdg-activation on this desktop");
         return;
     };
     activation.activate(token, &surface);
     activation.destroy();
     let ok = conn.flush().is_ok();
-    log::info!(target: "lightsnap", "main window activated with a token: {ok}");
+    log::info!(target: "dyosnap", "main window activated with a token: {ok}");
 }
 
 struct Activate;

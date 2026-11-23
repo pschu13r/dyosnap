@@ -19,5 +19,5 @@ accepted = [
 targets = ["aarch64-apple-darwin"]
 ignore-build-dependencies = true
 ignore-dev-dependencies = true
-# Skip LightSnap itself (publish = false); its license is LICENSE.
+# Skip DyoSnap itself (publish = false); its license is LICENSE.
 private = { ignore = true }

@@ -2,7 +2,7 @@
 //!
 //! Wayland tells no app where other windows are. KDE's KWin runs scripts on request
 //! (org.kde.kwin.Scripting, open to every app): a small script lists the windows and sends
-//! the list back to LightSnap over D-Bus. Other desktops have no such way; there "Capture
+//! the list back to DyoSnap over D-Bus. Other desktops have no such way; there "Capture
 //! Window" uses the desktop's own picker.
 
 use egui::{Rect, pos2, vec2};
@@ -23,18 +23,18 @@ pub fn window_rects() -> Vec<Rect> {
     match pollster::block_on(list()) {
         Ok(v) => v,
         Err(e) => {
-            log::warn!(target: "lightsnap", "window list: {e}");
+            log::warn!(target: "dyosnap", "window list: {e}");
             Vec::new()
         }
     }
 }
 
-const PATH: &str = "/io/github/pschu13r/LightSnap/Windows";
-const IFACE: &str = "io.github.pschu13r.LightSnap.Windows";
+const PATH: &str = "/io/github/pschu13r/DyoSnap/Windows";
+const IFACE: &str = "io.github.pschu13r.DyoSnap.Windows";
 
 struct Receiver(mpsc::SyncSender<String>);
 
-#[zbus::interface(name = "io.github.pschu13r.LightSnap.Windows")]
+#[zbus::interface(name = "io.github.pschu13r.DyoSnap.Windows")]
 impl Receiver {
     fn report(&self, json: String) {
         let _ = self.0.try_send(json);
@@ -87,7 +87,7 @@ callDBus("{me}", "{PATH}", "{IFACE}", "Report", JSON.stringify(out));
 async fn run_script(conn: &zbus::Connection, what: &str, script: &str) -> Result<(), String> {
     let file = crate::platform::temp_file(what, "js");
     std::fs::write(&file, script).map_err(|e| e.to_string())?;
-    let name = format!("lightsnap-{what}-{}", std::process::id());
+    let name = format!("dyosnap-{what}-{}", std::process::id());
     let scripting = zbus::Proxy::new(conn, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting").await.map_err(|e| e.to_string())?;
     // A script of the same name left from before would block loading.
     let _: Result<bool, _> = scripting.call("unloadScript", &(name.as_str(),)).await;
@@ -100,7 +100,7 @@ async fn run_script(conn: &zbus::Connection, what: &str, script: &str) -> Result
     run.map_err(|e| e.to_string())
 }
 
-/// KDE: puts LightSnap's main window in front through a KWin script. For shortcuts, whose
+/// KDE: puts DyoSnap's main window in front through a KWin script. For shortcuts, whose
 /// portal sends no activation token on KDE. In the background; does nothing elsewhere.
 pub fn kwin_activate_main() {
     if !can_list_windows() {
@@ -109,7 +109,7 @@ pub fn kwin_activate_main() {
     let script = format!(
         r#"let main = null;
 for (const w of workspace.stackingOrder) {{
-  if (w.pid === {pid} && w.normalWindow && !w.caption.startsWith("LightSnap | ")) main = w;
+  if (w.pid === {pid} && w.normalWindow && !w.caption.startsWith("DyoSnap | ")) main = w;
 }}
 if (main) {{
   main.minimized = false;
@@ -124,8 +124,8 @@ if (main) {{
             run_script(&conn, "activate", &script).await
         });
         match res {
-            Ok(()) => log::info!(target: "lightsnap", "main window activated through KWin"),
-            Err(e) => log::warn!(target: "lightsnap", "KWin activation: {e}"),
+            Ok(()) => log::info!(target: "dyosnap", "main window activated through KWin"),
+            Err(e) => log::warn!(target: "dyosnap", "KWin activation: {e}"),
         }
     });
 }

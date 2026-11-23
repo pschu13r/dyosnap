@@ -29,4 +29,4 @@ pub use tray::*;
 pub use windows::*;
 pub use wl_clipboard::{attach as attach_clipboard, ready as clipboard_ready, ready_known as clipboard_ready_known};
 
-use super::{APP_ID, OLD_APP_ID};
+use super::{APP_ID, OLD_APP_IDS};

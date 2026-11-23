@@ -1,5 +1,5 @@
 #!/bin/bash
-# Writes THIRD_PARTY_NOTICES.txt: the licenses of everything LightSnap.app ships
+# Writes THIRD_PARTY_NOTICES.txt: the licenses of everything DyoSnap.app ships
 # besides its own code (ffmpeg and the Rust crates). bundle.sh runs this and puts
 # the result into the app. Run it again after changing Cargo.lock or ffmpeg.
 #
@@ -27,20 +27,20 @@ cargo about generate --fail about.hbs -o "$RUST"
 
 {
 cat <<TXT
-THIRD-PARTY NOTICES FOR LIGHTSNAP
+THIRD-PARTY NOTICES FOR DYOSNAP
 
-LightSnap itself is under the MIT license (see LICENSE). It ships with the
+DyoSnap itself is under the MIT license (see LICENSE). It ships with the
 third-party software listed below, each under its own license.
 
   1. FFmpeg $FF_VERSION (LGPL 2.1 or later), as Contents/MacOS/ffmpeg
-  2. Rust crates compiled into Contents/MacOS/lightsnap
+  2. Rust crates compiled into Contents/MacOS/dyosnap
 
 ================================================================================
 1. FFMPEG
 ================================================================================
 
-LightSnap.app contains a build of FFmpeg (https://ffmpeg.org), a separate
-program that LightSnap starts to record, play, trim and convert video.
+DyoSnap.app contains a build of FFmpeg (https://ffmpeg.org), a separate
+program that DyoSnap starts to record, play, trim and convert video.
 FFmpeg is copyright (c) the FFmpeg developers and is licensed under the GNU
 Lesser General Public License version 2.1 or later. The full license text
 follows at the end of this section.
@@ -57,19 +57,19 @@ Source code
     Signed by the FFmpeg release key (fingerprint
     FCF9 86EA 15E6 E293 A564 4F10 B432 2F04 D676 58D8):
     https://ffmpeg.org/releases/ffmpeg-$FF_VERSION.tar.xz.asc
-  The same tarball and its signature are attached to every LightSnap release:
-    https://github.com/pschu13r/lightsnap/releases
-  The patch and build script are also in the LightSnap source:
-    https://github.com/pschu13r/lightsnap
+  The same tarball and its signature are attached to every DyoSnap release:
+    https://github.com/pschu13r/dyosnap/releases
+  The patch and build script are also in the DyoSnap source:
+    https://github.com/pschu13r/dyosnap
 
-Changes by LightSnap
+Changes by DyoSnap
 --------------------
   One patch is applied to the source before building:
     ffmpeg-avfoundation-audio-queue.patch
     (changes libavdevice/avfoundation.m: queue audio frames from the
     microphone instead of overwriting the one not read yet)
   The patch and the build script (build-ffmpeg.sh) are inside the app at
-    LightSnap.app/Contents/Resources/ffmpeg/
+    DyoSnap.app/Contents/Resources/ffmpeg/
 
 Build
 -----
@@ -86,17 +86,17 @@ cat <<'TXT'
 
 Replacing FFmpeg
 ----------------
-  You may change and rebuild FFmpeg and use your build with LightSnap:
+  You may change and rebuild FFmpeg and use your build with DyoSnap:
   build it with build-ffmpeg.sh (or your own options), then replace
-  LightSnap.app/Contents/MacOS/ffmpeg with your binary and sign the app
+  DyoSnap.app/Contents/MacOS/ffmpeg with your binary and sign the app
   again, for example ad hoc:
-    codesign --force --deep --sign - LightSnap.app
+    codesign --force --deep --sign - DyoSnap.app
 
 Independent JPEG Group
 ----------------------
   This software is based in part on the work of the Independent JPEG Group.
   (FFmpeg's files libavcodec/jfdctfst.c, libavcodec/jfdctint_template.c and
-  libavcodec/jrevdct.c are taken from libjpeg; LightSnap does not change
+  libavcodec/jrevdct.c are taken from libjpeg; DyoSnap does not change
   them.)
 
 GNU Lesser General Public License, version 2.1
@@ -110,9 +110,9 @@ cat <<'TXT'
 2. RUST CRATES
 ================================================================================
 
-The LightSnap program (Contents/MacOS/lightsnap) is compiled together with
+The DyoSnap program (Contents/MacOS/dyosnap) is compiled together with
 the Rust crates below. Each license text is listed once, followed by the
-crates it applies to. Where a crate offers a choice of licenses, LightSnap
+crates it applies to. Where a crate offers a choice of licenses, DyoSnap
 uses it under the license it is listed with. The source code of every crate
 is available at the crates.io link given for it.
 TXT

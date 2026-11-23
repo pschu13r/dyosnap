@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=LightSnap
+Name=DyoSnap
 Comment=Screenshots and screen recordings, saved locally
-Exec=lightsnap %f
-Icon=io.github.pschu13r.LightSnap
+Exec=dyosnap %f
+Icon=io.github.pschu13r.DyoSnap
 Categories=Utility;Graphics;
 Keywords=screenshot;screen;recording;capture;
 MimeType=image/png;image/jpeg;video/mp4;
-StartupWMClass=io.github.pschu13r.LightSnap
+StartupWMClass=io.github.pschu13r.DyoSnap
 Terminal=false

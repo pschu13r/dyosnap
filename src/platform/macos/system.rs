@@ -23,15 +23,15 @@ pub fn open_with(app: &str, path: &Path) {
     let _ = Command::new("/usr/bin/open").arg("-a").arg(app).arg(path).spawn();
 }
 
-/// Shows a system notification. Inside LightSnap.app it comes from LightSnap itself (its
-/// name and icon; macOS asks once whether LightSnap may send them). A bare binary has no
+/// Shows a system notification. Inside DyoSnap.app it comes from DyoSnap itself (its
+/// name and icon; macOS asks once whether DyoSnap may send them). A bare binary has no
 /// bundle for that and goes through `osascript`, which shows it as Script Editor's.
 pub fn notify(title: &str, body: &str) {
     if in_app_bundle() && notify_from_app(title, body) {
         return;
     }
     let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
-    let script = format!("display notification \"{}\" with title \"LightSnap\" subtitle \"{}\"", esc(body), esc(title));
+    let script = format!("display notification \"{}\" with title \"DyoSnap\" subtitle \"{}\"", esc(body), esc(title));
     let _ = Command::new("/usr/bin/osascript").args(["-e", &script]).spawn();
 }
 
@@ -39,10 +39,10 @@ pub fn notify(title: &str, body: &str) {
 unsafe extern "C" {}
 
 define_class!(
-    // Without a delegate macOS shows no banner while LightSnap is the active app, which
+    // Without a delegate macOS shows no banner while DyoSnap is the active app, which
     // it is right after saving in the editor.
     #[unsafe(super(NSObject))]
-    #[name = "LightSnapNotificationDelegate"]
+    #[name = "DyoSnapNotificationDelegate"]
     struct NotifyDelegate;
 
     impl NotifyDelegate {
@@ -72,7 +72,7 @@ fn notify_from_app(title: &str, body: &str) -> bool {
     // so the first notification is not lost while the question is open.
     let send = RcBlock::new(move |granted: Bool, _error: *mut AnyObject| {
         if !granted.as_bool() {
-            log::info!(target: "lightsnap", "notifications are not allowed");
+            log::info!(target: "dyosnap", "notifications are not allowed");
             return;
         }
         let (Some(content_cls), Some(request_cls), Some(center_cls)) = (
@@ -84,7 +84,7 @@ fn notify_from_app(title: &str, body: &str) -> bool {
         };
         unsafe {
             let content: Retained<AnyObject> = msg_send![content_cls, new];
-            let _: () = msg_send![&*content, setTitle: &*NSString::from_str("LightSnap")];
+            let _: () = msg_send![&*content, setTitle: &*NSString::from_str("DyoSnap")];
             let _: () = msg_send![&*content, setSubtitle: &*NSString::from_str(&title)];
             let _: () = msg_send![&*content, setBody: &*NSString::from_str(&body)];
             let id = NSString::from_str(&format!("{:?}", std::time::SystemTime::now()));
@@ -124,19 +124,21 @@ pub fn editor_label(app: &str) -> String {
     Path::new(app).file_stem().and_then(|s| s.to_str()).unwrap_or(app).to_string()
 }
 
-/// Runs once at start. The app bundle tells the system about LightSnap. Only a LaunchAgent
-/// from a version before the app id changed (v0.4.2 and older) is moved to the new label.
-/// A login item set up through SMAppService can't be carried over: it belongs to the old
-/// bundle id, so "Launch at login" has to be switched on again once.
+/// Runs once at start. The app bundle tells the system about DyoSnap. Only a LaunchAgent
+/// from an earlier version (v0.4.2 and older, or LightSnap run as a bare binary) is moved
+/// to the new label. A login item set up through SMAppService can't be carried over: it
+/// belongs to the old bundle id (delete LightSnap.app, its Login Items entry goes with it),
+/// so "Launch at login" has to be switched on again once.
 pub fn prepare() {
-    let Some(old) = dirs::home_dir()
-        .map(|h| h.join("Library/LaunchAgents").join(format!("{OLD_AGENT_LABEL}.plist")))
-    else {
+    let Some(agents) = dirs::home_dir().map(|h| h.join("Library/LaunchAgents")) else {
         return;
     };
-    if old.is_file() {
-        let _ = std::fs::remove_file(&old);
-        set_login_item(true);
+    for label in OLD_AGENT_LABELS {
+        let old = agents.join(format!("{label}.plist"));
+        if old.is_file() {
+            let _ = std::fs::remove_file(&old);
+            set_login_item(true);
+        }
     }
 }
 
@@ -165,13 +167,13 @@ pub const ANNOTATION_FONTS: &[&str] = &[
 /// Small font with the ⌥ ⌘ ⇧ key symbols, used as a fallback in the interface.
 pub const SYMBOL_FONT: &str = "/System/Library/Fonts/Apple Symbols.ttf";
 
-/// Where the crash log goes: ~/Library/Logs/LightSnap.
+/// Where the crash log goes: ~/Library/Logs/DyoSnap.
 pub fn log_dir() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join("Library/Logs/LightSnap"))
+    dirs::home_dir().map(|h| h.join("Library/Logs/DyoSnap"))
 }
 
 // ---------------------------------------------------------------- launch at login
-// Inside LightSnap.app this uses SMAppService, so the app shows up in System Settings ›
+// Inside DyoSnap.app this uses SMAppService, so the app shows up in System Settings ›
 // General › Login Items. A bare binary (`cargo run`) can't use SMAppService and falls
 // back to a LaunchAgent file. Started at login, the app opens in the menu bar only
 // (see `main.rs`: after the first start it always starts quietly).
@@ -185,7 +187,7 @@ fn in_app_bundle() -> bool {
         .is_some_and(|p| p.to_string_lossy().contains(".app/Contents/MacOS/"))
 }
 
-/// Puts LightSnap's window whose title starts with `title` in front of all windows, also
+/// Puts DyoSnap's window whose title starts with `title` in front of all windows, also
 /// those of other apps, and makes it the key window. Since macOS 14 a menu-bar app can't
 /// take the front with winit's "focus" (the old activation call is ignored).
 pub fn raise_window(title: &str) {
@@ -247,7 +249,7 @@ pub fn login_item_enabled() -> bool {
     agent_path().is_some_and(|p| p.is_file())
 }
 
-/// Starts LightSnap (in the menu bar, window hidden) when the person logs in.
+/// Starts DyoSnap (in the menu bar, window hidden) when the person logs in.
 pub fn set_login_item(on: bool) {
     if in_app_bundle() {
         // Builds before the app bundle wrote a LaunchAgent file; SMAppService replaces it.
@@ -268,8 +270,8 @@ pub fn set_login_item(on: bool) {
     set_launch_agent(on);
 }
 
-const AGENT_LABEL: &str = "io.github.pschu13r.lightsnap.login";
-const OLD_AGENT_LABEL: &str = "io.github.badger12345.lightsnap.login";
+const AGENT_LABEL: &str = "io.github.pschu13r.dyosnap.login";
+const OLD_AGENT_LABELS: &[&str] = &["io.github.badger12345.lightsnap.login", "io.github.pschu13r.lightsnap.login"];
 
 fn agent_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join("Library/LaunchAgents").join(format!("{AGENT_LABEL}.plist")))

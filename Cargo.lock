@@ -726,6 +726,43 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
+name = "dyosnap"
+version = "1.0.0"
+dependencies = [
+ "ab_glyph",
+ "arboard",
+ "ashpd",
+ "block2 0.6.2",
+ "chrono",
+ "dirs",
+ "eframe",
+ "egui",
+ "epaint_default_fonts",
+ "futures-util",
+ "global-hotkey",
+ "image",
+ "ksni",
+ "libc",
+ "log",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "pipewire",
+ "pollster",
+ "rfd",
+ "serde",
+ "serde_json",
+ "smithay-client-toolkit",
+ "tiny-skia",
+ "tray-icon",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols",
+ "winit",
+ "zbus 6.3.0",
+]
+
+[[package]]
 name = "ecolor"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1613,43 +1650,6 @@ dependencies = [
  "bindgen",
  "cc",
  "system-deps",
-]
-
-[[package]]
-name = "lightsnap"
-version = "1.0.0"
-dependencies = [
- "ab_glyph",
- "arboard",
- "ashpd",
- "block2 0.6.2",
- "chrono",
- "dirs",
- "eframe",
- "egui",
- "epaint_default_fonts",
- "futures-util",
- "global-hotkey",
- "image",
- "ksni",
- "libc",
- "log",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "pipewire",
- "pollster",
- "rfd",
- "serde",
- "serde_json",
- "smithay-client-toolkit",
- "tiny-skia",
- "tray-icon",
- "wayland-backend",
- "wayland-client",
- "wayland-protocols",
- "winit",
- "zbus 6.3.0",
 ]
 
 [[package]]

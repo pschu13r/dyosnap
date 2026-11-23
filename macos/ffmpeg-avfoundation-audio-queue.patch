@@ -1,4 +1,4 @@
-LightSnap: ffmpeg's avfoundation input keeps only one audio frame. While a video frame
+DyoSnap: ffmpeg's avfoundation input keeps only one audio frame. While a video frame
 is being read, newer audio frames overwrite older ones, so recordings lose about 15%
 of their sound and it sounds choppy. This queues audio frames instead.
 

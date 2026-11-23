@@ -168,7 +168,7 @@ pub fn capture_all_screens(count: usize, _cursor: bool) -> Vec<PathBuf> {
 }
 
 /// Whether captures that don't ask first (full screen, timed) may run. macOS asks by
-/// itself when needed, so LightSnap does not have to.
+/// itself when needed, so DyoSnap does not have to.
 pub fn screenshot_allowed() -> bool {
     true
 }

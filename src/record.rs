@@ -312,7 +312,7 @@ mod tests {
         r.toggle_pause();
         std::thread::sleep(Duration::from_millis(1500));
         assert!(r.poll_failure().is_none());
-        let out = r.finish(std::env::temp_dir().join("lightsnap-test-rec")).unwrap();
+        let out = r.finish(std::env::temp_dir().join("dyosnap-test-rec")).unwrap();
         let meta = std::fs::metadata(&out).unwrap();
         assert!(meta.len() > 1000, "file too small");
         println!("recorded {} ({} bytes)", out.display(), meta.len());

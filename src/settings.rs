@@ -234,7 +234,7 @@ pub enum AfterCapture {
 impl AfterCapture {
     pub fn label(self) -> &'static str {
         match self {
-            AfterCapture::OpenEditor => "Open LightSnap editor",
+            AfterCapture::OpenEditor => "Open DyoSnap editor",
             AfterCapture::SaveAndCopy => "Save to folder and copy",
             AfterCapture::CopyOnly => "Copy to clipboard only",
         }
@@ -322,7 +322,7 @@ impl Default for Settings {
             .or_else(dirs::home_dir)
             .unwrap_or_else(std::env::temp_dir);
         Self {
-            save_dir: base.join("LightSnap"),
+            save_dir: base.join("DyoSnap"),
             extra_dirs: Vec::new(),
             next_folder_id: 1,
             format: ImageFormat::Png,
@@ -359,7 +359,7 @@ impl Default for Settings {
 }
 
 fn settings_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("LightSnap").join("settings.json"))
+    dirs::config_dir().map(|d| d.join("DyoSnap").join("settings.json"))
 }
 
 impl Settings {
@@ -710,7 +710,7 @@ mod tests {
 
     #[test]
     fn create_new_takes_the_next_name() {
-        let dir = std::env::temp_dir().join(format!("lightsnap-test-{}-a", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("dyosnap-test-{}-a", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let (a, _) = create_new_in(&dir, "Shot", "png").unwrap();
@@ -723,7 +723,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn create_new_does_not_follow_a_dangling_symlink() {
-        let dir = std::env::temp_dir().join(format!("lightsnap-test-{}-b", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("dyosnap-test-{}-b", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let target = dir.join("elsewhere.txt");

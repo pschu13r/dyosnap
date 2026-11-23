@@ -149,7 +149,7 @@ impl Prefs {
         if !self.open {
             return out;
         }
-        // Linux: GNOME puts a new window in front only while LightSnap has the focus. So
+        // Linux: GNOME puts a new window in front only while DyoSnap has the focus. So
         // the window waits until the main window has it (or a moment has passed).
         if self.wait > 0 {
             let main_focused = ctx.input(|i| i.viewport().focused) == Some(true);
@@ -160,7 +160,7 @@ impl Prefs {
         let size = self.tab.size();
         let mut builder = ViewportBuilder::default()
             .with_app_id(crate::platform::APP_ID)
-            .with_title(format!("LightSnap | {}", self.tab.name()))
+            .with_title(format!("DyoSnap | {}", self.tab.name()))
             // The tab's last fitted height, or its usual one: the window then rarely has to
             // grow after it opens.
             .with_inner_size(vec2(size.x, if self.content_h > 0.0 { self.content_h } else { size.y }))
@@ -176,7 +176,7 @@ impl Prefs {
             builder = builder.with_min_inner_size(fixed).with_max_inner_size(fixed);
         }
         let mut close = false;
-        crate::show_immediate(ctx, ViewportId::from_hash_of("lightsnap_prefs"), builder, |ui, _| {
+        crate::show_immediate(ctx, ViewportId::from_hash_of("dyosnap_prefs"), builder, |ui, _| {
             close = self.draw(ui, s, &mut out);
         });
         if close {
@@ -194,7 +194,7 @@ impl Prefs {
 
     #[cfg(target_os = "linux")]
     pub fn window_title(&self) -> String {
-        format!("LightSnap | {}", self.tab.name())
+        format!("DyoSnap | {}", self.tab.name())
     }
 
     /// Linux: no waiting for the main window's focus (see `show`), there is no such window.
@@ -236,7 +236,7 @@ impl Prefs {
                 // From the second frame on the window exists and can be put in front
                 // of other apps' windows too.
                 if self.focus_tries < FOCUS_FRAMES - 1 {
-                    crate::platform::raise_window("LightSnap | ");
+                    crate::platform::raise_window("DyoSnap | ");
                 }
                 if self.focus_tries == 0 {
                     log::info!("preferences: could not take the focus");
@@ -255,7 +255,7 @@ impl Prefs {
         if self.sized_for != Some(self.tab) {
             self.sized_for = Some(self.tab);
             self.content_h = 0.0;
-            ctx.send_viewport_cmd(ViewportCommand::Title(format!("LightSnap | {}", self.tab.name())));
+            ctx.send_viewport_cmd(ViewportCommand::Title(format!("DyoSnap | {}", self.tab.name())));
         }
         if ctx.input(|i| i.viewport().close_requested()) {
             close = true;
@@ -440,7 +440,7 @@ impl Prefs {
         });
     }
 
-    /// macOS: what LightSnap may do, read from the system. The status is read again when
+    /// macOS: what DyoSnap may do, read from the system. The status is read again when
     /// the window gets the focus back (the person comes from System Settings), not every frame.
     fn permissions(&mut self, ui: &mut Ui) {
         use crate::platform::{MicStatus, Pane};
@@ -647,7 +647,7 @@ impl Prefs {
             ui.add_space(4.0);
             ui.label(
                 egui::RichText::new(
-                    "Your desktop manages global shortcuts. Change them in GNOME Settings › Apps › LightSnap or KDE System Settings › Shortcuts.",
+                    "Your desktop manages global shortcuts. Change them in GNOME Settings › Apps › DyoSnap or KDE System Settings › Shortcuts.",
                 )
                 .color(DIM),
             );

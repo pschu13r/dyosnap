@@ -1,4 +1,4 @@
-//! LightSnap: a light screenshot and screen-recording app for macOS.
+//! DyoSnap: a light screenshot and screen-recording app for macOS.
 //! No cloud, no network: everything is saved locally or copied to the clipboard.
 
 #![allow(deprecated)]
@@ -17,6 +17,9 @@ mod video;
 use std::path::PathBuf;
 
 fn main() -> eframe::Result<()> {
+    // First: it moves LightSnap's folders, which the logs and settings below would
+    // otherwise create anew.
+    platform::migrate_old_folders();
     install_crash_log();
     install_warning_log();
     platform::prepare();
@@ -55,7 +58,7 @@ fn main() -> eframe::Result<()> {
 
     let make_options = move || {
         let mut viewport = egui::ViewportBuilder::default()
-            .with_title("LightSnap")
+            .with_title("DyoSnap")
             .with_app_id(platform::APP_ID)
             .with_inner_size([980.0, 620.0])
             .with_min_inner_size([900.0, 440.0]);
@@ -85,14 +88,14 @@ fn main() -> eframe::Result<()> {
 
     #[cfg(not(target_os = "linux"))]
     eframe::run_native(
-        "LightSnap",
+        "DyoSnap",
         make_options(),
-        Box::new(move |cc| Ok(Box::new(app::LightSnap::new(&cc.egui_ctx, screenshot, open, quiet, background)))),
+        Box::new(move |cc| Ok(Box::new(app::DyoSnap::new(&cc.egui_ctx, screenshot, open, quiet, background)))),
     )
 }
 
 /// Wayland can't hide a window, so on Linux "hiding" closes it. eframe then returns
-/// here, LightSnap keeps running (tray, shortcuts, recording) and the window opens again
+/// here, DyoSnap keeps running (tray, shortcuts, recording) and the window opens again
 /// when it is needed. The same egui context is used every time, so the app's state and
 /// its helper threads stay valid.
 #[cfg(target_os = "linux")]
@@ -110,8 +113,8 @@ fn run_linux(
     let ctx = egui::Context::default();
     ctx.set_embed_viewports(false);
     ctx.options_mut(|o| o.max_passes = std::num::NonZeroUsize::new(2).unwrap_or(std::num::NonZeroUsize::MIN));
-    let state: Rc<RefCell<app::LightSnap>> =
-        Rc::new(RefCell::new(app::LightSnap::new(&ctx, screenshot, open, quiet, background)));
+    let state: Rc<RefCell<app::DyoSnap>> =
+        Rc::new(RefCell::new(app::DyoSnap::new(&ctx, screenshot, open, quiet, background)));
     let mut first = true;
     loop {
         if !(first && background) {
@@ -139,11 +142,11 @@ fn run_linux(
             if let Some(token) = platform::take_activation_token() {
                 // egui-winit hands it to the new window and removes the variable again.
                 // SAFETY: set right before the window is made; no other thread of
-                // LightSnap reads this variable.
+                // DyoSnap reads this variable.
                 unsafe { std::env::set_var("XDG_ACTIVATION_TOKEN", token) };
             }
             let result = eframe::run_native_ext(
-                "LightSnap",
+                "DyoSnap",
                 options,
                 Some(ctx.clone()),
                 Box::new(move |cc| {
@@ -169,14 +172,14 @@ fn run_linux(
     }
 }
 
-/// If LightSnap ever stops because of an error, write what happened to
+/// If DyoSnap ever stops because of an error, write what happened to
 /// crash.log in the system's log folder (see `platform::log_dir`) so it can be found and fixed.
 fn install_crash_log() {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         if EXPECTED_PANIC.with(|c| c.get()) {
             // Handled by show_immediate; note it so a window that misbehaves can be traced.
-            log::warn!(target: "lightsnap", "skipped a frame of an extra window: {info}");
+            log::warn!(target: "dyosnap", "skipped a frame of an extra window: {info}");
             return;
         }
         if let Some(dir) = platform::log_dir() {
@@ -195,14 +198,14 @@ fn install_crash_log() {
     }));
 }
 
-/// Warnings and errors from LightSnap and the GUI libraries (plus LightSnap's own notes)
-/// go to lightsnap.log in the
+/// Warnings and errors from DyoSnap and the GUI libraries (plus DyoSnap's own notes)
+/// go to dyosnap.log in the
 /// log folder (see `platform::log_dir`). The file starts over when it passes 1 MB.
 struct WarningLog(std::sync::Mutex<Option<std::fs::File>>);
 
 impl log::Log for WarningLog {
     fn enabled(&self, m: &log::Metadata) -> bool {
-        m.level() <= log::Level::Warn || (m.level() <= log::Level::Info && m.target().starts_with("lightsnap"))
+        m.level() <= log::Level::Warn || (m.level() <= log::Level::Info && m.target().starts_with("dyosnap"))
     }
     fn log(&self, r: &log::Record) {
         if !self.enabled(r.metadata()) {
@@ -228,7 +231,7 @@ impl log::Log for WarningLog {
 fn install_warning_log() {
     let Some(dir) = platform::log_dir() else { return };
     let _ = std::fs::create_dir_all(&dir);
-    let path = dir.join("lightsnap.log");
+    let path = dir.join("dyosnap.log");
     if std::fs::metadata(&path).map(|m| m.len() > 1_000_000).unwrap_or(false) {
         let _ = std::fs::remove_file(&path);
     }

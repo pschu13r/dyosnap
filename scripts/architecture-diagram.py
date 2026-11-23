@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Draws the C4 component diagram (level 3) of LightSnap as docs/architecture.svg.
+"""Draws the C4 component diagram (level 3) of DyoSnap as docs/architecture.svg.
 
 Edit the boxes and arrows below when the module layout changes, then run:
     python3 scripts/architecture-diagram.py
@@ -47,7 +47,7 @@ def line(points, label=None, lx=None, ly=None, anchor="middle", arrow=True, rota
 
 
 # Title
-P.append('<text x="560" y="62" font-size="28" font-weight="700" fill="#111">LightSnap: component diagram (C4 level 3)</text>')
+P.append('<text x="560" y="62" font-size="28" font-weight="700" fill="#111">DyoSnap: component diagram (C4 level 3)</text>')
 P.append('<text x="560" y="94" font-size="15" fill="#444">As of v1.0.0. One code base and one UI (egui/eframe on OpenGL) on macOS and Linux. Only the platform layer differs per system.</text>')
 
 # Person
@@ -56,7 +56,7 @@ box(260, 62, 220, 80, "User", "Person", [], style=PERSON, rx=26)
 
 # Container boundary
 P.append('<rect x="20" y="180" width="1640" height="1035" rx="6" fill="none" stroke="#777" stroke-width="1.6" stroke-dasharray="10 6"/>')
-P.append('<text x="40" y="1185" font-size="17" font-weight="700" fill="#333">LightSnap</text>')
+P.append('<text x="40" y="1185" font-size="17" font-weight="700" fill="#333">DyoSnap</text>')
 P.append('<text x="40" y="1205" font-size="13" fill="#555">[Container: desktop app, one process. Rust, egui/eframe + OpenGL]</text>')
 
 # Row 1

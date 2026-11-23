@@ -74,7 +74,7 @@ pub fn notify(title: &str, body: &str) {
                 "/org/freedesktop/Notifications",
                 Some("org.freedesktop.Notifications"),
                 "Notify",
-                &("LightSnap", 0u32, super::APP_ID, title.as_str(), body.as_str(), Vec::<&str>::new(), hints, 4000i32),
+                &("DyoSnap", 0u32, super::APP_ID, title.as_str(), body.as_str(), Vec::<&str>::new(), hints, 4000i32),
             )
             .await
         });
@@ -85,7 +85,7 @@ pub fn notify(title: &str, body: &str) {
 pub const THIS_COMPUTER: &str = "this computer";
 pub const FILE_MANAGER: &str = "Files";
 pub const VIDEO_PLAYER: &str = "Video Player";
-pub const SCREEN_PERMISSION_HINT: &str = "Allow LightSnap to take screenshots when your desktop asks.";
+pub const SCREEN_PERMISSION_HINT: &str = "Allow DyoSnap to take screenshots when your desktop asks.";
 pub const FFMPEG_HINT: &str = "install ffmpeg with your package manager";
 /// Image editors offered in the settings: (value stored in the settings, label).
 pub const EDITOR_APPS: &[(&str, &str)] = &[("", "Default App")];
@@ -110,8 +110,8 @@ pub fn editor_label(app: &str) -> String {
     Path::new(app).file_stem().and_then(|s| s.to_str()).unwrap_or(app).to_string()
 }
 
-/// Runs once at start. Makes sure the desktop knows LightSnap: a .desktop file with
-/// LightSnap's app id gives it its name and icon, and the portals need it to remember
+/// Runs once at start. Makes sure the desktop knows DyoSnap: a .desktop file with
+/// DyoSnap's app id gives it its name and icon, and the portals need it to remember
 /// what was allowed. A package or AppImage tool that installed one wins; otherwise one
 /// goes into ~/.local/share and is kept pointing at this binary.
 pub fn prepare() {
@@ -129,8 +129,8 @@ pub fn prepare() {
     }
     let exe = std::env::var_os("APPIMAGE").map(PathBuf::from).or_else(|| std::env::current_exe().ok());
     let Some(exe) = exe else { return };
-    let entry = include_str!("../../../linux/io.github.pschu13r.LightSnap.desktop")
-        .replace("Exec=lightsnap", &format!("Exec={}", desktop_quote(&exe.display().to_string())));
+    let entry = include_str!("../../../linux/io.github.pschu13r.DyoSnap.desktop")
+        .replace("Exec=dyosnap", &format!("Exec={}", desktop_quote(&exe.display().to_string())));
     let path = data.join("applications").join(&name);
     if std::fs::read_to_string(&path).ok().as_deref() != Some(entry.as_str()) {
         let _ = std::fs::create_dir_all(data.join("applications"));
@@ -139,24 +139,25 @@ pub fn prepare() {
     let icon = data.join("icons/hicolor/256x256/apps").join(format!("{}.png", super::APP_ID));
     if !icon.is_file() {
         let _ = std::fs::create_dir_all(icon.parent().unwrap_or(Path::new(".")));
-        let _ = std::fs::write(&icon, include_bytes!("../../../linux/io.github.pschu13r.LightSnap.png"));
+        let _ = std::fs::write(&icon, include_bytes!("../../../linux/io.github.pschu13r.DyoSnap.png"));
     }
 }
 
-/// Up to v0.4.2 the app id was `OLD_APP_ID`. Removes the .desktop file and icon written
-/// under it and moves "Launch at login" to the new id. The portals ask once more for
-/// what they allowed the old id.
+/// Earlier versions used the app ids in `OLD_APP_IDS` (up to v0.4.2, and LightSnap).
+/// Removes the .desktop file and icon written under each and moves "Launch at login" to
+/// the new id. The portals ask once more for what they allowed the old ids.
 fn migrate_old_app_id() {
-    let old = super::OLD_APP_ID;
-    if let Some(data) = dirs::data_dir() {
-        let _ = std::fs::remove_file(data.join("applications").join(format!("{old}.desktop")));
-        let _ = std::fs::remove_file(data.join("icons/hicolor/256x256/apps").join(format!("{old}.png")));
-    }
-    if let Some(config) = dirs::config_dir() {
-        let autostart = config.join("autostart").join(format!("{old}.desktop"));
-        if autostart.is_file() {
-            let _ = std::fs::remove_file(&autostart);
-            set_login_item(true);
+    for old in super::OLD_APP_IDS {
+        if let Some(data) = dirs::data_dir() {
+            let _ = std::fs::remove_file(data.join("applications").join(format!("{old}.desktop")));
+            let _ = std::fs::remove_file(data.join("icons/hicolor/256x256/apps").join(format!("{old}.png")));
+        }
+        if let Some(config) = dirs::config_dir() {
+            let autostart = config.join("autostart").join(format!("{old}.desktop"));
+            if autostart.is_file() {
+                let _ = std::fs::remove_file(&autostart);
+                set_login_item(true);
+            }
         }
     }
 }
@@ -197,9 +198,9 @@ pub const ANNOTATION_FONTS: &[&str] = &[
 /// Font with arrow and key symbols, used as a fallback in the interface.
 pub const SYMBOL_FONT: &str = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 
-/// Where the crash log goes: ~/.local/state/lightsnap.
+/// Where the crash log goes: ~/.local/state/dyosnap.
 pub fn log_dir() -> Option<PathBuf> {
-    dirs::state_dir().or_else(|| dirs::home_dir().map(|h| h.join(".local/state"))).map(|d| d.join("lightsnap"))
+    dirs::state_dir().or_else(|| dirs::home_dir().map(|h| h.join(".local/state"))).map(|d| d.join("dyosnap"))
 }
 
 // ---------------------------------------------------------------- launch at login
@@ -225,7 +226,7 @@ pub fn set_login_item(on: bool) {
     let Some(exe) = exe else { return };
     let exe = desktop_quote(&exe.display().to_string());
     let body = format!(
-        "[Desktop Entry]\nType=Application\nName=LightSnap\nExec={exe} --background\nIcon={id}\nX-GNOME-Autostart-enabled=true\nNoDisplay=true\n",
+        "[Desktop Entry]\nType=Application\nName=DyoSnap\nExec={exe} --background\nIcon={id}\nX-GNOME-Autostart-enabled=true\nNoDisplay=true\n",
         id = super::APP_ID
     );
     if let Some(d) = path.parent() {

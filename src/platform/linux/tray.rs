@@ -20,8 +20,8 @@ struct Sni {
     icon_dir: Option<std::path::PathBuf>,
 }
 
-const ICON_IDLE: &str = "lightsnap-tray";
-const ICON_REC: &str = "lightsnap-tray-recording";
+const ICON_IDLE: &str = "dyosnap-tray";
+const ICON_REC: &str = "dyosnap-tray-recording";
 /// Steps of the ring around the recording dot: it fills once a minute, a step every 5 s.
 const RING_STEPS: u32 = 12;
 
@@ -87,7 +87,7 @@ fn ring_pixels(step: u32, paused: bool) -> Vec<u8> {
 /// color, dark on a light panel and light on a dark one. Other hosts draw it in the white
 /// given in the file (GNOME's top bar is dark). The red dot is a PNG, it shows on any panel.
 fn write_icons() -> Option<std::path::PathBuf> {
-    let dir = dirs::cache_dir()?.join("lightsnap").join("icons");
+    let dir = dirs::cache_dir()?.join("dyosnap").join("icons");
     std::fs::create_dir_all(&dir).ok()?;
     // Up to v0.4.2 the camera was a PNG; with both files the host may pick the old one.
     let _ = std::fs::remove_file(dir.join(format!("{ICON_IDLE}.png")));
@@ -116,8 +116,8 @@ impl ksni::Tray for Sni {
     }
     fn title(&self) -> String {
         match &self.title {
-            Some(t) => format!("LightSnap {t}"),
-            None => "LightSnap".into(),
+            Some(t) => format!("DyoSnap {t}"),
+            None => "DyoSnap".into(),
         }
     }
     fn icon_theme_path(&self) -> String {
@@ -163,7 +163,7 @@ fn build(entries: &[MenuEntry]) -> Vec<ksni::MenuItem<Sni>> {
                     activate: Box::new(move |t: &mut Sni| {
                         // The tray host may hand over the right to bring a window to the front.
                         let tok = ksni::current_xdg_activation_token();
-                        log::debug!(target: "lightsnap", "tray item {id}, activation token: {}", tok.is_some());
+                        log::debug!(target: "dyosnap", "tray item {id}, activation token: {}", tok.is_some());
                         if let (Some(tok), Ok(mut slot)) = (tok, ACTIVATION.lock()) {
                             *slot = Some((tok, std::time::Instant::now()));
                         }
@@ -213,7 +213,7 @@ impl Tray {
         match sni.spawn() {
             Ok(h) => Some(Self(h)),
             Err(e) => {
-                log::warn!(target: "lightsnap", "tray: {e}");
+                log::warn!(target: "dyosnap", "tray: {e}");
                 None
             }
         }
@@ -279,7 +279,7 @@ impl Hotkeys {
     }
 
     /// The shortcuts as the desktop has them (it may have kept or changed the keys
-    /// LightSnap asked for), by action id. None until they are bound.
+    /// DyoSnap asked for), by action id. None until they are bound.
     pub fn live_labels(&self) -> Option<HashMap<String, String>> {
         self.live.lock().ok()?.clone()
     }
@@ -289,7 +289,7 @@ impl Hotkeys {
         self.version.load(Ordering::SeqCst) >= 2
     }
 
-    /// Opens the desktop's page for changing LightSnap's shortcuts.
+    /// Opens the desktop's page for changing DyoSnap's shortcuts.
     pub fn configure(&self) {
         let _ = self.tx.send(Cmd::Configure);
     }
@@ -324,7 +324,7 @@ impl Shared {
             .iter()
             .map(|s| (s.id().to_string(), tidy_trigger(s.trigger_description())))
             .collect();
-        log::info!(target: "lightsnap", "global shortcuts: {map:?}");
+        log::info!(target: "dyosnap", "global shortcuts: {map:?}");
         if let Ok(mut l) = self.live.lock() {
             *l = Some(map);
         }
@@ -362,7 +362,7 @@ async fn run(rx: std::sync::mpsc::Receiver<Cmd>, shared: Shared) {
     let portal = match GlobalShortcuts::new().await {
         Ok(p) => p,
         Err(e) => {
-            log::warn!(target: "lightsnap", "global shortcuts portal not available: {e}");
+            log::warn!(target: "dyosnap", "global shortcuts portal not available: {e}");
             return;
         }
     };
@@ -379,7 +379,7 @@ async fn run(rx: std::sync::mpsc::Receiver<Cmd>, shared: Shared) {
                     let id = ev.shortcut_id().to_string();
                     // The desktop may hand over the right to bring a window to the front.
                     let token = ev.options().get("activation_token").and_then(|v| <&str>::try_from(&**v).ok().map(str::to_string));
-                    log::debug!(target: "lightsnap", "shortcut {id}, activation token: {}", token.is_some());
+                    log::debug!(target: "dyosnap", "shortcut {id}, activation token: {}", token.is_some());
                     if let (Some(t), Ok(mut slot)) = (token, ACTIVATION.lock()) {
                         *slot = Some((t, std::time::Instant::now()));
                     }
@@ -407,7 +407,7 @@ async fn run(rx: std::sync::mpsc::Receiver<Cmd>, shared: Shared) {
             Cmd::Configure => {
                 if let Some(s) = &session {
                     if let Err(e) = portal.configure_shortcuts(s, None, Default::default()).await {
-                        log::warn!(target: "lightsnap", "configure shortcuts: {e}");
+                        log::warn!(target: "dyosnap", "configure shortcuts: {e}");
                     }
                 }
                 continue;
@@ -434,7 +434,7 @@ async fn run(rx: std::sync::mpsc::Receiver<Cmd>, shared: Shared) {
             .collect();
         match portal.bind_shortcuts(&s, &shortcuts, None, Default::default()).await.and_then(|r| r.response()) {
             Ok(r) => shared.set_live(r.shortcuts()),
-            Err(e) => log::warn!(target: "lightsnap", "global shortcuts: {e}"),
+            Err(e) => log::warn!(target: "dyosnap", "global shortcuts: {e}"),
         }
         session = Some(s);
     }

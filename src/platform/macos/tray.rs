@@ -12,7 +12,7 @@ impl Tray {
         tray_icon::menu::MenuEvent::set_event_handler(Some(move |e: tray_icon::menu::MenuEvent| sink(e.id.0.clone())));
         let mut b = tray_icon::TrayIconBuilder::new()
             .with_menu(Box::new(build(&menu)))
-            .with_tooltip("LightSnap")
+            .with_tooltip("DyoSnap")
             .with_icon_as_template(true);
         if let Some(i) = icon(false) {
             b = b.with_icon(i);
@@ -116,7 +116,7 @@ impl Hotkeys {
         Some(Self { mgr, registered, keys: Vec::new() })
     }
 
-    /// The shortcuts as the system has them. macOS uses LightSnap's own settings.
+    /// The shortcuts as the system has them. macOS uses DyoSnap's own settings.
     pub fn live_labels(&self) -> Option<std::collections::HashMap<String, String>> {
         None
     }

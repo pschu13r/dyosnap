@@ -9,7 +9,7 @@
 //!    feeds it at a steady rate into a named pipe that ffmpeg reads as raw video; ffmpeg
 //!    crops and encodes as on macOS.
 //!
-//! The session ends with `end_screen_session`, or when LightSnap quits.
+//! The session ends with `end_screen_session`, or when DyoSnap quits.
 
 use crate::platform::{Devices, temp_file};
 use ashpd::desktop::PersistMode;
@@ -54,7 +54,7 @@ struct Cast {
 static CAST: Mutex<Option<Cast>> = Mutex::new(None);
 /// Numbers the frames of all streams in the order they come.
 static SEQ: AtomicU64 = AtomicU64::new(0);
-/// Whether LightSnap's main window is on screen, and the number of the newest frame when
+/// Whether DyoSnap's main window is on screen, and the number of the newest frame when
 /// it last closed. Frames up to that one may still show it (see `feed`).
 static WINDOW_OPEN: AtomicBool = AtomicBool::new(false);
 static CLOSED_AT_SEQ: AtomicU64 = AtomicU64::new(0);
@@ -65,7 +65,7 @@ static SOURCES: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
 /// one screen was shared (`screencast-token`); the new name makes the portal ask once more,
 /// now for all screens.
 fn token_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("LightSnap").join("screencast-token-screens"))
+    dirs::config_dir().map(|d| d.join("DyoSnap").join("screencast-token-screens"))
 }
 
 /// Starts sharing the screens: asks the portal (a dialog the first time), then connects
@@ -120,7 +120,7 @@ fn start_cast(cursor: bool) -> Result<(), String> {
             (Some((x, y)), Some((w, h))) => Some((x, y, w, h)),
             _ => None,
         };
-        log::info!(target: "lightsnap", "shared stream {node}: {rect:?}");
+        log::info!(target: "dyosnap", "shared stream {node}: {rect:?}");
         let frame: Arc<Mutex<Option<Frame>>> = Arc::new(Mutex::new(None));
         let (stop, stop_rx) = pw::channel::channel::<()>();
         let f = frame.clone();
@@ -128,7 +128,7 @@ fn start_cast(cursor: bool) -> Result<(), String> {
             .name("pipewire".into())
             .spawn(move || {
                 if let Err(e) = run_stream(fd, node, f, stop_rx) {
-                    log::warn!(target: "lightsnap", "pipewire: {e}");
+                    log::warn!(target: "dyosnap", "pipewire: {e}");
                 }
             })
             .map_err(|e| e.to_string())?;
@@ -174,7 +174,7 @@ pub fn main_window_open(open: bool) {
 }
 
 /// Stops the streams that don't show the screen `bounds`: a recording needs only one, and
-/// every running stream costs the compositor and LightSnap a copy of each frame. The
+/// every running stream costs the compositor and DyoSnap a copy of each frame. The
 /// screens stay listed (`shared_rects`) so the recording still finds its screen.
 pub fn keep_only_screen(bounds: egui::Rect) {
     let Some(cut) = locate(bounds, &super::displays()) else { return };
@@ -200,7 +200,7 @@ pub fn keep_only_screen(bounds: egui::Rect) {
         }
     }
     if n > 0 {
-        log::info!(target: "lightsnap", "recording screen at {:?}: stopped {n} other stream(s)", bounds.min);
+        log::info!(target: "dyosnap", "recording screen at {:?}: stopped {n} other stream(s)", bounds.min);
     }
 }
 
@@ -315,7 +315,7 @@ fn run_stream(fd: OwnedFd, node: u32, frame: Arc<Mutex<Option<Frame>>>, stop: pw
     }
     let stream = pw::stream::StreamBox::new(
         &core,
-        "lightsnap-screen",
+        "dyosnap-screen",
         pw::properties::properties! {
             *pw::keys::MEDIA_TYPE => "Video",
             *pw::keys::MEDIA_CATEGORY => "Capture",
@@ -428,7 +428,7 @@ fn run_stream(fd: OwnedFd, node: u32, frame: Arc<Mutex<Option<Frame>>>, stop: pw
 /// stay shared for the recording (see `end_screen_session`).
 pub fn capture_all_screens(_count: usize, cursor: bool) -> Vec<PathBuf> {
     if let Err(e) = start_cast(cursor) {
-        log::warn!(target: "lightsnap", "screen cast: {e}");
+        log::warn!(target: "dyosnap", "screen cast: {e}");
         return Vec::new();
     }
     let mut out = Vec::new();
@@ -436,7 +436,7 @@ pub fn capture_all_screens(_count: usize, cursor: bool) -> Vec<PathBuf> {
     for (i, d) in screens.iter().enumerate() {
         let Some(cut) = locate(d.bounds, &screens) else { break };
         let Some(f) = latest_frame(cut.source) else { break };
-        log::info!(target: "lightsnap", "screen {i} at {:?}: {cut:?} of a {}x{} frame", d.bounds, f.width, f.height);
+        log::info!(target: "dyosnap", "screen {i} at {:?}: {cut:?} of a {}x{} frame", d.bounds, f.width, f.height);
         let Some(mut rgba) = cut_rows(&f, cut) else { break };
         if f.pix_fmt.starts_with("bgr") {
             for px in rgba.chunks_exact_mut(4) {
@@ -509,7 +509,7 @@ pub fn audio_encoder_args() -> Vec<String> {
 
 /// Output options that make ffmpeg play sound on the default speakers.
 pub fn sound_output_args() -> Vec<String> {
-    ["-af", "aresample=48000,apad=pad_dur=0.3", "-f", "pulse", "-name", "LightSnap", "LightSnap"]
+    ["-af", "aresample=48000,apad=pad_dur=0.3", "-f", "pulse", "-name", "DyoSnap", "DyoSnap"]
         .iter()
         .map(|s| s.to_string())
         .collect()
@@ -528,7 +528,7 @@ pub fn ffmpeg_input_args(screen_index: usize, audio: Option<&str>, fps: u32, _cu
     let fifo = temp_file("frames", "raw");
     let c = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap_or_default();
     if unsafe { libc::mkfifo(c.as_ptr(), 0o600) } != 0 {
-        log::warn!(target: "lightsnap", "mkfifo failed: {}", std::io::Error::last_os_error());
+        log::warn!(target: "dyosnap", "mkfifo failed: {}", std::io::Error::last_os_error());
     }
     let fps = fps.clamp(1, 60);
     let f2 = fifo.clone();
@@ -589,7 +589,7 @@ fn feed(fifo: &Path, cut: Cut, fw: u32, fh: u32, fps: u32) {
         libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK);
     }
     // The compositor sends frames only when the screen changes. The newest ones may still
-    // show LightSnap's area selection, which closes just now (the red frame appearing
+    // show DyoSnap's area selection, which closes just now (the red frame appearing
     // around the area makes a new one while it is open). Wait until the window is gone
     // and a frame came after that.
     let wait_until = Instant::now() + Duration::from_secs(2);

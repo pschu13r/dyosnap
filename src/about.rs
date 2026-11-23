@@ -1,5 +1,5 @@
-//! The About tab of the settings window: version, what LightSnap is, links to the project and the licenses.
-//! LightSnap makes no network connections itself; every link opens in the browser.
+//! The About tab of the settings window: version, what DyoSnap is, links to the project and the licenses.
+//! DyoSnap makes no network connections itself; every link opens in the browser.
 
 use egui::{Align, Color32, FontFamily, FontId, Layout, RichText, TextureHandle, vec2};
 use std::path::{Path, PathBuf};
@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 const TEXT: Color32 = Color32::from_rgb(232, 232, 236);
 const DIM: Color32 = Color32::from_rgb(140, 140, 146);
 
-const REPO: &str = "https://github.com/pschu13r/lightsnap";
-const ICON_PNG: &[u8] = include_bytes!("../linux/io.github.pschu13r.LightSnap.png");
+const REPO: &str = "https://github.com/pschu13r/dyosnap";
+const ICON_PNG: &[u8] = include_bytes!("../linux/io.github.pschu13r.DyoSnap.png");
 
 /// Draws the About tab of the settings window. `icon` holds the app icon once loaded.
 pub fn draw(ui: &mut egui::Ui, icon: &mut Option<TextureHandle>) {
@@ -27,7 +27,7 @@ pub fn draw(ui: &mut egui::Ui, icon: &mut Option<TextureHandle>) {
             ui.add(egui::Image::new(t).fit_to_exact_size(vec2(80.0, 80.0)));
         }
         ui.add_space(6.0);
-        ui.label(RichText::new("LightSnap").font(FontId::new(22.0, FontFamily::Name("annot".into()))).color(TEXT));
+        ui.label(RichText::new("DyoSnap").font(FontId::new(22.0, FontFamily::Name("annot".into()))).color(TEXT));
         ui.label(RichText::new(format!("Version {}", env!("CARGO_PKG_VERSION"))).color(DIM));
         ui.add_space(10.0);
         ui.label(RichText::new("A lightweight, free and open-source app for screenshots and screen recordings.").color(TEXT));

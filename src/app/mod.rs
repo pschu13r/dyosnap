@@ -112,7 +112,7 @@ struct Job {
     /// The captured picture(s): one per screen when preparing a recording; empty if cancelled.
     rx: Receiver<Vec<PathBuf>>,
     for_record: bool,
-    /// Linux: the picture is for choosing a screenshot area in LightSnap (see `start_capture`).
+    /// Linux: the picture is for choosing a screenshot area in DyoSnap (see `start_capture`).
     select_shot: bool,
     /// An extra folder to save the picture into (see `Action::CaptureTo`).
     target: Option<PathBuf>,
@@ -139,7 +139,7 @@ struct Screenshot {
     sent: bool,
 }
 
-pub struct LightSnap {
+pub struct DyoSnap {
     settings: Settings,
     font: Arc<FontVec>,
     ed: Option<Editor>,
@@ -203,7 +203,7 @@ pub struct LightSnap {
     raise: bool,
 }
 
-impl LightSnap {
+impl DyoSnap {
     pub fn new(ctx: &egui::Context, screenshot: Option<PathBuf>, open: Option<PathBuf>, quiet: bool, background: bool) -> Self {
         let ctx = ctx.clone();
         let (font, font_bytes) = crate::doc::load_font();
@@ -374,7 +374,7 @@ impl LightSnap {
                 self.resent
             }
         };
-        log::warn!(target: "lightsnap", "an extra window lost a frame; resending (try {tries})");
+        log::warn!(target: "dyosnap", "an extra window lost a frame; resending (try {tries})");
         if (self.select.is_some() && tries > 3) || tries > 10 {
             return;
         }
@@ -391,8 +391,8 @@ impl LightSnap {
         ctx.send_viewport_cmd(ViewportCommand::RequestPaintWhileHidden);
     }
 
-    /// Linux: GNOME asks once whether LightSnap may take screenshots, and only while
-    /// LightSnap's window is in front. This note lets the person do that.
+    /// Linux: GNOME asks once whether DyoSnap may take screenshots, and only while
+    /// DyoSnap's window is in front. This note lets the person do that.
     fn permission_prompt(&mut self, ctx: &egui::Context) {
         if !self.perm_prompt || self.select.is_some() {
             return;
@@ -627,7 +627,7 @@ impl LightSnap {
         sel.placed = true;
         let here = current.name().and_then(|n| platform::output_bounds(&n));
         if let Some(i) = here.and_then(|b| sel.screens.iter().position(|s| s.bounds.min == b.min)) {
-            log::info!(target: "lightsnap", "selection on {:?} (screen {i})", current.name());
+            log::info!(target: "dyosnap", "selection on {:?} (screen {i})", current.name());
             sel.shown = i;
             if !sel.shot {
                 // The record area starts on this screen too.
@@ -639,7 +639,7 @@ impl LightSnap {
         let Some(first) = sel.screens.first() else { return };
         let Some(target) = platform::output_name_at(first.bounds.min) else { return };
         if let Some(m) = win.available_monitors().find(|m| m.name().as_deref() == Some(target.as_str())) {
-            log::info!(target: "lightsnap", "selection opened on {:?}, not shared; moving it to {target}", current.name());
+            log::info!(target: "dyosnap", "selection opened on {:?}, not shared; moving it to {target}", current.name());
             // KWin keeps a window that is already full screen where it is: leave full screen
             // first, then ask for it on the shared screen.
             win.set_fullscreen(None);
@@ -652,7 +652,7 @@ impl LightSnap {
     }
 }
 
-impl eframe::App for LightSnap {
+impl eframe::App for DyoSnap {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         #[cfg(target_os = "linux")]
         {
@@ -720,7 +720,7 @@ impl eframe::App for LightSnap {
         self.auto_copy_edits(ctx);
         self.test_open_prefs(ctx);
 
-        // Closing the window keeps LightSnap in the menu bar. On Linux the window really
+        // Closing the window keeps DyoSnap in the menu bar. On Linux the window really
         // closes (Wayland can't hide it) and main.rs keeps the app running.
         // (A window that shows only Preferences handles its close request itself.)
         #[cfg(target_os = "linux")]
@@ -1088,7 +1088,7 @@ fn setup_style(ctx: &egui::Context, font_bytes: Vec<u8>) {
 /// Linux: the app as eframe sees it while a window is open. The state outlives the
 /// window (see `run_linux` in main.rs).
 #[cfg(target_os = "linux")]
-pub struct Shared(pub std::rc::Rc<std::cell::RefCell<LightSnap>>);
+pub struct Shared(pub std::rc::Rc<std::cell::RefCell<DyoSnap>>);
 
 #[cfg(target_os = "linux")]
 impl eframe::App for Shared {
@@ -1101,5 +1101,5 @@ impl eframe::App for Shared {
     fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
         self.0.borrow().clear_color(visuals)
     }
-    // No on_exit: closing the window only hides LightSnap. Quit saves and exits by itself.
+    // No on_exit: closing the window only hides DyoSnap. Quit saves and exits by itself.
 }

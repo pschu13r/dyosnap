@@ -14,7 +14,7 @@ pub fn end_screen_session() {}
 /// Places to look for ffmpeg, in order.
 pub fn ffmpeg_candidates() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
-    // The one shipped next to the app's own binary (LightSnap.app/Contents/MacOS/ffmpeg).
+    // The one shipped next to the app's own binary (DyoSnap.app/Contents/MacOS/ffmpeg).
     if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.to_path_buf())) {
         candidates.push(dir.join("ffmpeg"));
     }
