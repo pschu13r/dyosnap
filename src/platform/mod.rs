@@ -31,6 +31,23 @@ pub const APP_ID: &str = "io.github.pschu13r.LightSnap";
 #[cfg(target_os = "linux")]
 pub const OLD_APP_ID: &str = "io.github.badger12345.LightSnap";
 
+/// The microphone permission (macOS; Linux never reads it).
+#[cfg_attr(target_os = "linux", allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MicStatus {
+    Allowed,
+    /// Denied, or turned off by the system's rules.
+    Denied,
+    NotAsked,
+}
+
+/// A page of the system's privacy settings (macOS).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pane {
+    ScreenRecording,
+    Microphone,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CaptureKind {
     Area,

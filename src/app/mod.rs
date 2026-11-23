@@ -120,6 +120,13 @@ struct Toast {
     text: String,
     until: Instant,
     path: Option<PathBuf>,
+    /// A button in the toast.
+    action: Option<ToastAction>,
+}
+
+struct ToastAction {
+    label: &'static str,
+    run: fn(),
 }
 
 struct Screenshot {
@@ -314,7 +321,27 @@ impl LightSnap {
     }
 
     fn toast(&mut self, text: impl Into<String>, path: Option<PathBuf>) {
-        self.toast = Some(Toast { text: text.into(), until: Instant::now() + Duration::from_secs(4), path });
+        self.toast = Some(Toast { text: text.into(), until: Instant::now() + Duration::from_secs(4), path, action: None });
+    }
+
+    /// A toast with a button. It stays longer, so there is time to reach the button.
+    fn toast_action(&mut self, text: impl Into<String>, label: &'static str, run: fn()) {
+        self.toast = Some(Toast {
+            text: text.into(),
+            until: Instant::now() + Duration::from_secs(8),
+            path: None,
+            action: Some(ToastAction { label, run }),
+        });
+    }
+
+    /// The screen could not be read. On macOS the toast opens the Screen Recording settings.
+    fn toast_no_screen(&mut self) {
+        let text = format!("Could not read the screen. {}", platform::SCREEN_PERMISSION_HINT);
+        if cfg!(target_os = "macos") {
+            self.toast_action(text, "Open System Settings", || platform::open_privacy(platform::Pane::ScreenRecording));
+        } else {
+            self.toast(text, None);
+        }
     }
 
     fn show_window(&mut self, ctx: &egui::Context) {
@@ -943,15 +970,27 @@ impl eframe::App for LightSnap {
             if let Some(t) = &self.toast {
                 let rect = ui.max_rect();
                 let galley = ui.painter().layout_no_wrap(t.text.clone(), FontId::proportional(14.0), Color32::WHITE);
-                let r = Rect::from_center_size(
-                    pos2(rect.center().x, rect.max.y - 34.0),
-                    galley.size() + vec2(28.0, 16.0),
-                );
+                let mut size = galley.size() + vec2(28.0, 16.0);
+                let btn_w = t.action.as_ref().map_or(0.0, |a| {
+                    let w = ui.painter().layout_no_wrap(a.label.into(), FontId::proportional(13.0), Color32::WHITE).size().x;
+                    w + 20.0
+                });
+                // The button sits under the text.
+                if btn_w > 0.0 {
+                    size.y += 24.0 + 8.0;
+                }
+                let r = Rect::from_center_size(pos2(rect.center().x, rect.max.y - 34.0 - (size.y - 36.0).max(0.0) / 2.0), size);
                 ui.painter().rect_filled(r, 8.0, Color32::from_black_alpha(215));
                 ui.painter().galley(r.min + vec2(14.0, 8.0), galley, Color32::WHITE);
                 if let Some(p) = t.path.clone() {
                     if ui.interact(r, Id::new("toast"), Sense::click()).on_hover_text(format!("Show in {}", platform::FILE_MANAGER)).clicked() {
                         platform::reveal_path(&p);
+                    }
+                }
+                if let Some(a) = &t.action {
+                    let b = Rect::from_center_size(pos2(r.center().x, r.max.y - 8.0 - 12.0), vec2(btn_w, 24.0));
+                    if ui.put(b, egui::Button::new(a.label)).clicked() {
+                        (a.run)();
                     }
                 }
             }

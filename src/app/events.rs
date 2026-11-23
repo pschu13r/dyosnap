@@ -351,7 +351,7 @@ impl LightSnap {
                         if screens.is_empty() {
                             platform::end_screen_session();
                             self.show_window(ctx);
-                            self.toast(format!("Could not read the screen. {}", platform::SCREEN_PERMISSION_HINT), None);
+                            self.toast_no_screen();
                         } else {
                             self.select = Some(Select {
                                 screens,
@@ -376,7 +376,7 @@ impl LightSnap {
                         if screens.is_empty() {
                             self.show_window(ctx);
                             self.perm_prompt = !platform::screenshot_allowed();
-                            self.toast(format!("Could not read the screen. {}", platform::SCREEN_PERMISSION_HINT), None);
+                            self.toast_no_screen();
                         } else {
                             // Start with a frame of 75% of the screen under the mouse, centred.
                             let mouse = platform::mouse_position().unwrap_or(screens[0].bounds.center());
@@ -405,7 +405,7 @@ impl LightSnap {
                     (None, true) => {
                         self.show_window(ctx);
                         self.perm_prompt = !platform::screenshot_allowed();
-                        self.toast(format!("Could not read the screen. {}", platform::SCREEN_PERMISSION_HINT), None);
+                        self.toast_no_screen();
                     }
                     (None, false) => {
                         let asks = matches!(kind, CaptureKind::Area | CaptureKind::Previous | CaptureKind::Window);

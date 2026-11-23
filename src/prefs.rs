@@ -83,6 +83,9 @@ pub struct Prefs {
     size_checks: u32,
     /// The app icon on the About tab, loaded when first shown.
     about_icon: Option<egui::TextureHandle>,
+    /// macOS: the permissions as last read, and whether the window had the focus then.
+    perms: Option<(bool, crate::platform::MicStatus)>,
+    was_focused: bool,
 }
 
 #[derive(Default)]
@@ -115,6 +118,8 @@ impl Default for Prefs {
             embed_extra: 0.0,
             size_checks: 0,
             about_icon: None,
+            perms: None,
+            was_focused: false,
         }
     }
 }
@@ -201,6 +206,7 @@ impl Prefs {
     pub fn close(&mut self, out: &mut PrefsOut) {
         self.open = false;
         self.sized_for = None;
+        self.perms = None;
         self.cancel_capture(out);
         out.changed = true;
     }
@@ -232,6 +238,12 @@ impl Prefs {
             ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::RequestPaintWhileHidden);
             ctx.request_repaint_after(std::time::Duration::from_millis(30));
         }
+        // Back from System Settings: read the permissions again.
+        let focused = ctx.input(|i| i.viewport().focused) == Some(true);
+        if focused && !self.was_focused {
+            self.perms = None;
+        }
+        self.was_focused = focused;
         if self.sized_for != Some(self.tab) {
             self.sized_for = Some(self.tab);
             self.content_h = 0.0;
@@ -383,6 +395,10 @@ impl Prefs {
             }
         });
         separator(ui);
+        if cfg!(target_os = "macos") {
+            self.permissions(ui);
+            separator(ui);
+        }
         ui.vertical_centered(|ui| {
             if ui.add(egui::Button::new("Reset all settings").min_size(vec2(190.0, 24.0))).clicked() {
                 *s = Settings::default();
@@ -392,6 +408,44 @@ impl Prefs {
             }
             ui.label(egui::RichText::new("ALL settings in the application will be reset").color(DIM));
         });
+    }
+
+    /// macOS: what LightSnap may do, read from the system. The status is read again when
+    /// the window gets the focus back (the person comes from System Settings), not every frame.
+    fn permissions(&mut self, ui: &mut Ui) {
+        use crate::platform::{MicStatus, Pane};
+        let (screen, mic) = *self
+            .perms
+            .get_or_insert_with(|| (crate::platform::screen_recording_allowed(), crate::platform::mic_status()));
+        ui.vertical_centered(|ui| ui.label(egui::RichText::new("Permissions").color(TEXT)));
+        let ok = Color32::from_rgb(90, 200, 120);
+        let bad = Color32::from_rgb(235, 170, 80);
+        let rows = [
+            ("Screen Recording:", Pane::ScreenRecording, screen, if screen { "Allowed" } else { "Not allowed" }),
+            (
+                "Microphone:",
+                Pane::Microphone,
+                mic == MicStatus::Allowed,
+                match mic {
+                    MicStatus::Allowed => "Allowed",
+                    MicStatus::Denied => "Not allowed",
+                    MicStatus::NotAsked => "Not asked yet",
+                },
+            ),
+        ];
+        for (label, pane, allowed, text) in rows {
+            row(ui, label, |ui| {
+                ui.allocate_ui_with_layout(vec2(CTRL_W, ROW_H), Layout::right_to_left(Align::Center), |ui| {
+                    ui.set_width(CTRL_W);
+                    if ui.button("Open System Settings").clicked() {
+                        crate::platform::open_privacy(pane);
+                    }
+                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                        ui.label(egui::RichText::new(text).color(if allowed { ok } else { bad }));
+                    });
+                });
+            });
+        }
     }
 
     // ------------------------------------------------------------ Screenshots

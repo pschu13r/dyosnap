@@ -246,3 +246,12 @@ pub fn play_capture_sound() {
         }
     });
 }
+
+// The permission settings exist on macOS only. The settings window never calls these.
+pub fn screen_recording_allowed() -> bool {
+    true
+}
+pub fn mic_status() -> crate::platform::MicStatus {
+    crate::platform::MicStatus::Allowed
+}
+pub fn open_privacy(_pane: crate::platform::Pane) {}
