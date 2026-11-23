@@ -60,7 +60,8 @@ impl Tab {
         match self {
             Tab::General => vec2(WIN_W, 420.0),
             Tab::Screenshots => vec2(WIN_W, 640.0),
-            Tab::Video => vec2(WIN_W, 400.0),
+            // One more line when the encoder note shows (Linux without x264).
+            Tab::Video => vec2(WIN_W, if crate::platform::encoder_note().is_some() { 424.0 } else { 400.0 }),
             Tab::About => vec2(WIN_W, 400.0),
         }
     }
@@ -613,6 +614,11 @@ impl Prefs {
                 }
             });
         });
+        if let Some(note) = crate::platform::encoder_note() {
+            row(ui, "", |ui| {
+                ui.label(egui::RichText::new(note).small().color(DIM));
+            });
+        }
         row(ui, &format!("GIF FPS: {}", s.gif_fps), |ui| {
             ui.spacing_mut().slider_width = CTRL_W;
             out.changed |= ui.add(egui::Slider::new(&mut s.gif_fps, 1..=30).show_value(false)).changed();
