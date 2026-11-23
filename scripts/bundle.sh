@@ -2,16 +2,15 @@
 # Builds dist/DyoSnap.app for Apple Silicon and a zip of it to pass around.
 #
 # Signing: uses the code-signing certificate named in DYOSNAP_SIGN_ID when it is in your
-# keychain. The default is still "LightSnap Dev": the certificate keeps its old name on
-# purpose, a new one would make every user grant the permission again. The signature then
-# stays the same from build to build, so macOS keeps the screen-recording permission.
+# keychain (default "DyoSnap"). The signature then stays the same from build to build, so
+# macOS keeps the screen-recording permission.
 # Without the certificate the app is signed ad hoc: it runs, but macOS asks for
-# the permission again after every new build. See README.md for how to create one.
+# the permission again after every new build. See CONTRIBUTING.md for how to create one.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-SIGN_ID="${DYOSNAP_SIGN_ID:-LightSnap Dev}"
+SIGN_ID="${DYOSNAP_SIGN_ID:-DyoSnap}"
 TARGET=aarch64-apple-darwin
 APP=dist/DyoSnap.app
 

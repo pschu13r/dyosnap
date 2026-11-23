@@ -87,13 +87,6 @@ xattr -dr com.apple.quarantine /Applications/DyoSnap.app
 
 To check that your copy was built by Philipp Schuler, see [Signing](#signing).
 
-### Upgrading from LightSnap
-
-Your settings move over on the first start of DyoSnap. macOS asks for the screen-recording
-permission again (the app id is new), and you can delete the old `LightSnap.app`. Its
-Login Items entry goes with it; switch **Launch at login** on again in DyoSnap if you want
-it. Your screenshots stay where they were, in the folder from your settings.
-
 ## Build (macOS)
 
 Needs Rust (https://rustup.rs) and the Xcode command line tools. `bundle.sh` also needs
@@ -114,10 +107,7 @@ DyoSnap uses this build, or else an ffmpeg from Homebrew.
 
 Releases by Philipp Schuler are signed with a self-signed certificate:
 
-    LightSnap Dev, SHA-1 d51bd93470b3635b5b854c8edb609a7709b3f3a6
-
-The certificate keeps its old name on purpose: a new certificate would make everyone
-grant the screen-recording permission once more.
+    DyoSnap, SHA-1 9ed20208d1169d7e53a6053ee6361a894720f1bd
 
 To check a copy, run `codesign -d -r- DyoSnap.app`. It shows the SHA-1 as
 `certificate leaf = H"…"`.
@@ -134,10 +124,6 @@ Plasma.
 Download `DyoSnap-<version>-linux-<arch>.tar.gz` from
 [Releases](https://github.com/pschu13r/dyosnap/releases), unpack it anywhere and start
 `dyosnap`. On first start it adds itself to your app list (`~/.local/share/applications`).
-
-Coming from LightSnap? Your settings move over on the first start, and the old app list
-entry, icon and "Launch at login" entry are replaced. Your desktop asks once more for the
-global shortcuts and for screen sharing (the app id is new).
 
 DyoSnap also needs:
 
