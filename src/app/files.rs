@@ -32,6 +32,16 @@ pub(super) fn write_new(dir: &Path, stem: &str, ext: &str, bytes: &[u8]) -> std:
     Ok(path)
 }
 
+/// The file type a video is saved as: the chosen format, or without ffmpeg the type it
+/// already has (then it can only be copied as it is).
+pub(super) fn video_save_ext(v: &VideoView, fmt: crate::settings::VideoFormat) -> String {
+    if v.ffmpeg.is_some() {
+        fmt.ext().to_string()
+    } else {
+        v.path.extension().and_then(|e| e.to_str()).unwrap_or("mp4").to_lowercase()
+    }
+}
+
 pub(super) fn short_path(p: &Path) -> String {
     let s = p.display().to_string();
     match dirs::home_dir() {
@@ -310,8 +320,7 @@ impl LightSnap {
         v.stop();
         let fmt = self.settings.video_format;
         let src_ext = v.path.extension().and_then(|e| e.to_str()).unwrap_or("mp4").to_lowercase();
-        // Without ffmpeg the video can only be copied as it is.
-        let ext = if v.ffmpeg.is_some() { fmt.ext().to_string() } else { src_ext.clone() };
+        let ext = video_save_ext(v, fmt);
         if !v.is_trimmed() && dir == self.settings.save_dir {
             if let Some(saved) = v.saved.clone().filter(|p| p.extension().is_some_and(|e| e == ext.as_str())) {
                 if then_copy {

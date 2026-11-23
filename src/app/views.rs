@@ -237,8 +237,16 @@ impl LightSnap {
                 copy.on_hover_text(format!("Copy to the clipboard ({}). Nothing is uploaded.", crate::settings::keys_text(false, "C")));
                 ui.spacing_mut().item_spacing.x = 10.0;
                 let saving = self.video_saving.is_some();
-                let label = if saving { "Saving…" } else { "Save" };
-                let save = text_button(ui, label, BTN, BTN_HOVER, can_copy && !saving, vec2(58.0, BAR_ITEM_H));
+                // Videos say what they become ("Save as GIF"): the format is set in Preferences
+                // and changes what the export does.
+                let video_ext = self.video.as_ref().map(|v| video_save_ext(v, self.settings.video_format));
+                let label = match (&video_ext, saving) {
+                    (_, true) => "Saving…".to_string(),
+                    (Some(ext), false) => format!("Save as {}", ext.to_uppercase()),
+                    (None, false) => "Save".to_string(),
+                };
+                let save_w = if video_ext.is_some() { 98.0 } else { 58.0 };
+                let save = text_button(ui, &label, BTN, BTN_HOVER, can_copy && !saving, vec2(save_w, BAR_ITEM_H));
                 if save.clicked() {
                     if has_ed {
                         self.save_picture(false);
@@ -249,11 +257,7 @@ impl LightSnap {
                 save.on_hover_text(format!("Save to {} ({})", short_path(&self.settings.save_dir), crate::settings::keys_text(false, "S")));
 
                 // File name with its extension.
-                let ext = if let Some(v) = &self.video {
-                    if v.is_trimmed() { "mp4".to_string() } else { v.path.extension().and_then(|e| e.to_str()).unwrap_or("mp4").to_string() }
-                } else {
-                    self.settings.format.ext().to_string()
-                };
+                let ext = video_ext.clone().unwrap_or_else(|| self.settings.format.ext().to_string());
                 ui.spacing_mut().item_spacing.x = 0.0;
                 let field_bg = Color32::from_rgb(36, 36, 38);
                 let ext_text = format!(".{ext}");
