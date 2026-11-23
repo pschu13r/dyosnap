@@ -117,6 +117,9 @@ pub fn editor_label(app: &str) -> String {
 /// this binary.
 pub fn prepare() {
     migrate_old_app_id();
+    std::thread::spawn(|| {
+        super::recording::h264_encoder();
+    });
     let name = format!("{}.desktop", super::APP_ID);
     let user_dir = dirs::data_dir();
     let system_dirs = std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());

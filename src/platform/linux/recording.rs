@@ -20,7 +20,7 @@ use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 // ---------------------------------------------------------------- frames
@@ -494,13 +494,87 @@ pub fn list_devices(ffmpeg: &Path) -> Devices {
     devices
 }
 
-/// Encode with x264 (the system ffmpeg has it). `quality` goes from 1 to 100.
-pub fn video_encoder_args(quality: u32) -> Vec<String> {
-    let crf = 40 - (quality.clamp(1, 100) * 22 / 100);
-    ["-c:v", "libx264", "-preset", "veryfast", "-crf", &crf.to_string(), "-pix_fmt", "yuv420p"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect()
+/// The H.264 encoder the system's ffmpeg offers.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum H264Encoder {
+    X264,
+    OpenH264,
+}
+
+/// Asks ffmpeg once which H.264 encoder it has: x264 if possible, else OpenH264 (Fedora's
+/// `ffmpeg-free`). If neither shows up, x264 stays the choice and ffmpeg reports the error.
+/// `prepare` asks on a thread at start, so opening the settings never waits for ffmpeg.
+pub(super) fn h264_encoder() -> H264Encoder {
+    static ENCODER: OnceLock<H264Encoder> = OnceLock::new();
+    *ENCODER.get_or_init(|| {
+        let list = crate::record::find_ffmpeg()
+            .and_then(|ff| {
+                Command::new(ff)
+                    .args(["-hide_banner", "-encoders"])
+                    .stdin(std::process::Stdio::null())
+                    .output()
+                    .ok()
+            })
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default();
+        let enc = pick_encoder(&list);
+        log::info!(target: "dyosnap", "video encoder: {}", if enc == H264Encoder::X264 { "libx264" } else { "libopenh264" });
+        enc
+    })
+}
+
+/// Picks the encoder from the output of `ffmpeg -encoders`.
+fn pick_encoder(list: &str) -> H264Encoder {
+    let has = |name: &str| list.lines().any(|l| l.split_whitespace().nth(1) == Some(name));
+    if has("libx264") {
+        H264Encoder::X264
+    } else if has("libopenh264") {
+        H264Encoder::OpenH264
+    } else {
+        H264Encoder::X264
+    }
+}
+
+/// A note for the recording settings when the encoder makes bigger files.
+pub fn encoder_note() -> Option<&'static str> {
+    (h264_encoder() == H264Encoder::OpenH264).then_some("Larger files: this ffmpeg has no x264 (see README).")
+}
+
+/// Target bit rate for OpenH264, in bits per second. OpenH264 has no constant-quality
+/// mode. For screen text it stays far below this target (measured 0.7 to 1.25 Mbit/s at
+/// 1080p), so the target mainly caps busy content. It grows with the square root of
+/// `fps`, because more frames of a screen repeat each other.
+fn openh264_bitrate(quality: u32, width: u32, height: u32, fps: u32) -> u32 {
+    let bpp = if quality <= 35 {
+        0.06
+    } else if quality <= 50 {
+        0.10
+    } else {
+        0.15
+    };
+    let rate = width as f64 * height as f64 * 15.0 * bpp * (fps as f64 / 15.0).sqrt();
+    rate.round().clamp(1_000_000.0, 30_000_000.0) as u32
+}
+
+/// Encode with x264 if the system's ffmpeg has it, else with OpenH264. `quality` goes from
+/// 1 to 100. `width`, `height` and `fps` describe the output video.
+pub fn video_encoder_args(quality: u32, width: u32, height: u32, fps: u32) -> Vec<String> {
+    match h264_encoder() {
+        H264Encoder::X264 => {
+            let crf = 40 - (quality.clamp(1, 100) * 22 / 100);
+            ["-c:v", "libx264", "-preset", "veryfast", "-crf", &crf.to_string(), "-pix_fmt", "yuv420p"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        }
+        H264Encoder::OpenH264 => {
+            let rate = openh264_bitrate(quality, width, height, fps).to_string();
+            ["-c:v", "libopenh264", "-rc_mode", "bitrate", "-b:v", &rate, "-allow_skip_frames", "0", "-pix_fmt", "yuv420p"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        }
+    }
 }
 
 pub fn audio_encoder_args() -> Vec<String> {
@@ -643,6 +717,25 @@ pub fn stop_fallback(child: &mut Child) {
 mod tests {
     use super::*;
     use egui::{Rect, pos2, vec2};
+
+    #[test]
+    fn openh264_bitrate_follows_size_quality_and_fps() {
+        let near = |a: u32, b: f64| (a as f64 - b).abs() < 20_000.0;
+        assert!(near(openh264_bitrate(60, 1920, 1080, 15), 4.67e6));
+        assert!(near(openh264_bitrate(35, 1920, 1080, 15), 1.87e6));
+        assert!(near(openh264_bitrate(60, 1920, 1080, 60), 9.33e6));
+        assert_eq!(openh264_bitrate(35, 100, 100, 10), 1_000_000);
+        assert_eq!(openh264_bitrate(60, 3840, 2160, 60), 30_000_000);
+    }
+
+    #[test]
+    fn encoder_is_picked_from_the_list() {
+        let x = " V....D libx264              libx264 H.264\n V....D libopenh264          OpenH264\n";
+        let o = " V....D libopenh264          OpenH264 H.264\n";
+        assert_eq!(pick_encoder(x), H264Encoder::X264);
+        assert_eq!(pick_encoder(o), H264Encoder::OpenH264);
+        assert_eq!(pick_encoder(""), H264Encoder::X264);
+    }
 
     fn r(x: f32, y: f32, w: f32, h: f32) -> Rect {
         Rect::from_min_size(pos2(x, y), vec2(w, h))

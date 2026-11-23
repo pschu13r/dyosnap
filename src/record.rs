@@ -106,15 +106,17 @@ impl Recorder {
                     even(h),
                 );
                 let mut filter = format!("crop={pw}:{ph}:{px}:{py}");
+                let (mut out_w, mut out_h) = (pw as u32, ph as u32);
                 if o.quality == Quality::Low && pw >= 640 {
                     filter.push_str(",scale=trunc(iw/4)*2:trunc(ih/4)*2");
+                    (out_w, out_h) = (out_w / 2, out_h / 2);
                 }
                 let mut cmd = Command::new(exe);
                 cmd.args(["-hide_banner", "-loglevel", "error", "-y"])
                     .args(platform::ffmpeg_input_args(*screen_index, o.audio.as_deref(), o.fps, o.cursor, o.clicks))
                     .args(["-vf", &filter])
                     .args(["-r", &o.fps.to_string()])
-                    .args(platform::video_encoder_args(o.quality.video_q()));
+                    .args(platform::video_encoder_args(o.quality.video_q(), out_w, out_h, o.fps));
                 if o.audio.is_some() {
                     cmd.args(platform::audio_encoder_args());
                 }

@@ -73,9 +73,14 @@ pub fn list_devices(ffmpeg: &Path) -> Devices {
 
 /// ffmpeg arguments that select the screen (and microphone) to record, up to and including `-i`.
 /// Encode video with Apple's hardware H.264 encoder. `quality` goes from 1 to 100.
-pub fn video_encoder_args(quality: u32) -> Vec<String> {
+pub fn video_encoder_args(quality: u32, _width: u32, _height: u32, _fps: u32) -> Vec<String> {
     let q = quality.clamp(1, 100).to_string();
     ["-c:v", "h264_videotoolbox", "-q:v", &q, "-pix_fmt", "yuv420p"].iter().map(|s| s.to_string()).collect()
+}
+
+/// A note for the recording settings about the encoder. None on macOS.
+pub fn encoder_note() -> Option<&'static str> {
+    None
 }
 
 /// Encode sound with Apple's AAC encoder.

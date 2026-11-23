@@ -17,7 +17,14 @@ use std::time::Instant;
 pub struct Probe {
     pub duration: f32,
     pub size: [u32; 2],
+    pub fps: Option<f32>,
     pub has_audio: bool,
+}
+
+/// Reads the frame rate from a stream line like `..., 29.97 fps, 29.97 tbr, ...`.
+fn parse_fps(line: &str) -> Option<f32> {
+    let before = &line[..line.find(" fps")?];
+    before.rsplit([' ', ',']).next()?.parse().ok()
 }
 
 /// Reads duration and size from ffmpeg's description of the file.
@@ -31,6 +38,7 @@ pub fn probe(ffmpeg: &Path, file: &Path) -> Option<Probe> {
     let text = String::from_utf8_lossy(&out.stderr);
     let mut duration = None;
     let mut size = None;
+    let mut fps = None;
     let mut has_audio = false;
     for line in text.lines() {
         has_audio |= line.contains("Stream #") && line.contains("Audio:");
@@ -41,6 +49,9 @@ pub fn probe(ffmpeg: &Path, file: &Path) -> Option<Probe> {
             if parts.len() == 3 {
                 duration = Some(parts[0] * 3600.0 + parts[1] * 60.0 + parts[2]);
             }
+        }
+        if line.contains("Video:") && fps.is_none() {
+            fps = parse_fps(line);
         }
         if line.contains("Video:") && size.is_none() {
             for tok in line.split([' ', ',']) {
@@ -55,7 +66,7 @@ pub fn probe(ffmpeg: &Path, file: &Path) -> Option<Probe> {
             }
         }
     }
-    Some(Probe { duration: duration?, size: size?, has_audio })
+    Some(Probe { duration: duration?, size: size?, fps, has_audio })
 }
 
 pub struct VideoView {
@@ -63,6 +74,7 @@ pub struct VideoView {
     pub ffmpeg: Option<PathBuf>,
     pub duration: f32,
     pub size: [u32; 2],
+    pub fps: Option<f32>,
     pub trim: (f32, f32),
     pub pos: f32,
     pub name: String,
@@ -80,9 +92,9 @@ pub struct VideoView {
 impl VideoView {
     pub fn new(path: PathBuf, ffmpeg: Option<PathBuf>, name: String, fallback_duration: f32) -> Self {
         let pr = ffmpeg.as_deref().and_then(|f| probe(f, &path));
-        let (duration, size, has_audio) = match &pr {
-            Some(p) => (p.duration, p.size, p.has_audio),
-            None => (fallback_duration, [0, 0], false),
+        let (duration, size, fps, has_audio) = match &pr {
+            Some(p) => (p.duration, p.size, p.fps, p.has_audio),
+            None => (fallback_duration, [0, 0], None, false),
         };
         let max_w = 1280u32;
         let preview_size = if size[0] > max_w {
@@ -96,6 +108,7 @@ impl VideoView {
             ffmpeg: if pr.is_some() { ffmpeg } else { None },
             duration,
             size,
+            fps,
             trim: (0.0, duration),
             pos: 0.0,
             name,
@@ -282,7 +295,12 @@ impl VideoView {
                     // Only the container changes: no re-encoding needed.
                     cmd.args(["-c", "copy"]);
                 } else {
-                    cmd.args(crate::platform::video_encoder_args(crate::settings::Quality::High.video_q()))
+                    cmd.args(crate::platform::video_encoder_args(
+                        crate::settings::Quality::High.video_q(),
+                        o.size[0],
+                        o.size[1],
+                        o.fps,
+                    ))
                         .args(crate::platform::audio_encoder_args());
                 }
                 if o.format == VideoFormat::Mp4 {
@@ -309,11 +327,28 @@ pub struct ExportOptions {
     pub gif_scale: f32,
     /// The recording is already in the wanted format.
     pub same_format: bool,
+    /// Size of the video in pixels, for the encoder's bit rate.
+    pub size: [u32; 2],
+    /// Frame rate of the video.
+    pub fps: u32,
 }
 
 impl Drop for VideoView {
     fn drop(&mut self) {
         // Ends the picture thread and the sound.
         self.stop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fps_is_read_from_the_stream_line() {
+        let l = "  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1920x1080, 1200 kb/s, 29.97 fps, 29.97 tbr, 15360 tbn (default)";
+        assert_eq!(parse_fps(l), Some(29.97));
+        assert_eq!(parse_fps("Video: h264, 1920x1080, 30 fps, 30 tbr"), Some(30.0));
+        assert_eq!(parse_fps("Video: h264, 1920x1080, 30 tbr"), None);
     }
 }

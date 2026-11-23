@@ -346,6 +346,8 @@ impl DyoSnap {
             gif_fps: self.settings.gif_fps,
             gif_scale: self.settings.gif_quality as f32 / 100.0,
             same_format: ext == src_ext,
+            size: if v.size[0] > 0 { v.size } else { [1920, 1080] },
+            fps: v.fps.map_or(30, |f| f.round().max(1.0) as u32),
         };
         let (path, ff) = (v.path.clone(), v.ffmpeg.clone());
         let (tx, rx) = channel();

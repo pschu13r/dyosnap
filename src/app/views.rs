@@ -34,6 +34,9 @@ pub(super) fn video_options(ui: &mut Ui, s: &mut Settings, devices: &Arc<Mutex<O
                 }
             });
     });
+    if let Some(note) = crate::platform::encoder_note() {
+        ui.label(egui::RichText::new(note).small().color(DIM_TEXT));
+    }
     changed |= ui.checkbox(&mut s.capture_cursor, "Capture mouse cursor").changed();
     if cfg!(target_os = "linux") {
         // Wayland tells no app about clicks in other apps' windows.

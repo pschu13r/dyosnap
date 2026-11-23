@@ -136,9 +136,11 @@ Download the package for your system from
 
 DyoSnap also needs:
 
-- **ffmpeg with x264** for recordings. To check, run `ffmpeg -encoders | grep libx264`.
+- **ffmpeg** for recordings, with x264 (preferred) or OpenH264 (fallback). To check, run
+  `ffmpeg -encoders | grep -E 'libx264|libopenh264'`.
   - Ubuntu, Debian: `sudo apt install ffmpeg` (the .deb does this for you)
-  - Fedora: the default `ffmpeg-free` has no x264. Enable
+  - Fedora: the default `ffmpeg-free` works too. DyoSnap then records with OpenH264, which
+    makes larger files (about 4 to 5 times). For smaller files, enable
     [RPM Fusion](https://rpmfusion.org/Configuration), then run
     `sudo dnf swap ffmpeg-free ffmpeg --allowerasing`.
   - Arch: `sudo pacman -S ffmpeg`
