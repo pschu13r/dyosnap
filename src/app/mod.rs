@@ -455,6 +455,7 @@ impl LightSnap {
             // then goes on as its own window.
             if !self.root_closing {
                 self.root_closing = true;
+                self.prefs.refit();
                 ctx.send_viewport_cmd(ViewportCommand::Close);
             }
             return true;

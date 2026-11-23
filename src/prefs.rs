@@ -190,6 +190,13 @@ impl Prefs {
         self.wait = 0;
     }
 
+    /// Linux: Preferences moves from the main window into its own window. Fit the new
+    /// window's height again, as on a first open.
+    #[cfg(target_os = "linux")]
+    pub fn refit(&mut self) {
+        self.sized_for = None;
+    }
+
     /// Closes Preferences.
     pub fn close(&mut self, out: &mut PrefsOut) {
         self.open = false;
