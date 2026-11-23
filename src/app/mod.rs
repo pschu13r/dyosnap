@@ -114,7 +114,6 @@ struct Job {
     for_record: bool,
     /// Linux: the picture is for choosing a screenshot area in LightSnap (see `start_capture`).
     select_shot: bool,
-    show_after: bool,
     /// An extra folder to save the picture into (see `Action::CaptureTo`).
     target: Option<PathBuf>,
     /// Linux "Capture Window": the windows, listed before the picture was taken.
@@ -630,7 +629,7 @@ impl LightSnap {
         if let Some(i) = here.and_then(|b| sel.screens.iter().position(|s| s.bounds.min == b.min)) {
             log::info!(target: "lightsnap", "selection on {:?} (screen {i})", current.name());
             sel.shown = i;
-            if sel.shot.is_none() {
+            if !sel.shot {
                 // The record area starts on this screen too.
                 let b = sel.screens[i].bounds;
                 sel.rect = Some(Rect::from_center_size(b.center(), b.size() * 0.75));
@@ -829,17 +828,9 @@ impl eframe::App for LightSnap {
         let framed = true;
         match sel_out {
             SelectOut::None => {}
-            SelectOut::Cancel if selecting_in_root && self.select.as_ref().is_some_and(|s| s.shot == Some(false)) => {
-                // A cancelled screenshot leaves no window behind.
-                self.select = None;
-                platform::end_screen_session();
-                self.visible = true;
-                self.hide_window(&ctx);
-            }
             SelectOut::Shot(r) => {
                 let sel = self.select.take();
                 platform::end_screen_session();
-                let show_after = sel.as_ref().and_then(|s| s.shot).unwrap_or(false);
                 let target = sel.as_ref().and_then(|s| s.target.clone());
                 // A full-screen capture is not an area to repeat with "Capture Previous Area".
                 let chosen = !sel.as_ref().is_some_and(|s| matches!(s.instant, Some((_, None))));
@@ -855,7 +846,7 @@ impl eframe::App for LightSnap {
                         if chosen {
                             self.last_area = Some(r);
                         }
-                        self.handle_capture(&ctx, p, show_after, target);
+                        self.handle_capture(&ctx, p, target);
                     }
                     None => {
                         self.show_window(&ctx);
@@ -883,12 +874,10 @@ impl eframe::App for LightSnap {
                 self.select = None;
                 platform::end_screen_session();
                 if selecting_in_root {
-                    // Back to a normal window.
-                    ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));
-                    ctx.send_viewport_cmd(ViewportCommand::Decorations(true));
-                    ctx.send_viewport_cmd(ViewportCommand::InnerSize(self.window_size()));
+                    // A cancelled capture leaves no window: the selection window just goes away.
+                    self.visible = true;
+                    self.hide_window(&ctx);
                 }
-                self.show_window(&ctx);
             }
             SelectOut::Record(r) if selecting_in_root && !framed && self.select.as_ref().is_some_and(|s| s.countdown.is_none()) => {
                 // Show the area a moment with a countdown, then record.

@@ -46,7 +46,7 @@ pub(super) struct Select {
     /// Linux: choosing the area of a screenshot, not of a recording. Holds whether the
     /// window was open before (it opens again afterwards). As with `screencapture -i` on
     /// macOS, the picture is taken when the mouse is let go: no button, no Enter.
-    pub(super) shot: Option<bool>,
+    pub(super) shot: bool,
     /// The extra folder a screenshot goes into (Linux; see `Action::CaptureTo`).
     pub(super) target: Option<PathBuf>,
     /// Linux: the screen the full-screen window opened on was found (see `place_selection`).
@@ -189,14 +189,21 @@ impl LightSnap {
         if let Some(v) = &mut self.video {
             v.stop();
         }
-        // Get the window out of the way. Also when it was shown without show_window, so the
-        // flag alone is not enough. macOS: ask AppKit; egui reports a window that was never
-        // shown as "not covered", which brought the home window up after the first capture.
+        // Every LightSnap window goes away while capturing: the main window and Preferences.
+        // None comes back unless the capture opens the editor (or fails). `was_visible` only
+        // tells whether to wait for them to vanish before the picture is taken. Also when the
+        // main window was shown without show_window, so the flag alone is not enough. macOS:
+        // ask AppKit; egui reports a window that was never shown as "not covered".
         #[cfg(target_os = "macos")]
         let shown = platform::window_visible("LightSnap");
         #[cfg(not(target_os = "macos"))]
         let shown = ctx.input(|i| i.viewport().occluded == Some(false));
-        let was_visible = self.visible || shown;
+        let was_visible = self.visible || self.prefs.open || shown;
+        if self.prefs.open {
+            let mut out = crate::prefs::PrefsOut::default();
+            self.prefs.close(&mut out);
+            self.handle_prefs_out(ctx, out);
+        }
         self.hide_window(ctx);
         // Linux: an area is chosen in LightSnap itself, on a frozen picture of the screen, as
         // for recordings. The desktop's own pickers ask for an extra click (GNOME) or offer
@@ -254,12 +261,12 @@ impl LightSnap {
             let _ = tx.send(r);
             ctx2.request_repaint();
         });
-        self.job = Some(Job { rx, kind, for_record, select_shot, show_after: was_visible, target, windows });
+        self.job = Some(Job { rx, kind, for_record, select_shot, target, windows });
     }
 
     /// A new picture. `target`: an extra folder to save it into (and copy it), whatever
     /// "After screenshot" says: no editor opens.
-    pub(super) fn handle_capture(&mut self, ctx: &egui::Context, path: PathBuf, show_after: bool, target: Option<PathBuf>) {
+    pub(super) fn handle_capture(&mut self, ctx: &egui::Context, path: PathBuf, target: Option<PathBuf>) {
         let name = self.settings.make_name("Screenshot");
         // The scale of the screen the picture came from, not of the screen the window was
         // last on: a snap from a normal screen shows at its real size, one from Retina too.
@@ -314,9 +321,6 @@ impl LightSnap {
                 }
                 (None, e) => self.toast(e.unwrap_or_default(), None),
             }
-            if show_after {
-                self.show_window(ctx);
-            }
             let _ = std::fs::remove_file(&path);
             return;
         }
@@ -339,15 +343,8 @@ impl LightSnap {
                 if let Some(dest) = saved {
                     platform::notify("Saved", &dest.display().to_string());
                 }
-                if show_after {
-                    self.show_window(ctx);
-                }
             }
-            AfterCapture::CopyOnly => {
-                if show_after {
-                    self.show_window(ctx);
-                }
-            }
+            AfterCapture::CopyOnly => {}
         }
         let _ = std::fs::remove_file(&path);
     }
@@ -377,7 +374,7 @@ impl LightSnap {
         let (instant, placed) = (*instant, *placed);
         let windows: &[Rect] = windows;
         let shown = *shown;
-        let shot_mode = shot.is_some();
+        let shot_mode = *shot;
         let all = screens.iter().fold(Rect::NOTHING, |a, s| a.union(s.bounds));
         let bounds_list: Vec<Rect> = screens.iter().map(|s| s.bounds).collect();
         // The screen that holds the middle of the area gets the Record button.

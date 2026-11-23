@@ -357,13 +357,13 @@ impl LightSnap {
 
         if let Some(job) = &self.job {
             if let Ok(res) = job.rx.try_recv() {
-                let (kind, for_record, show_after) = (job.kind, job.for_record, job.show_after);
+                let (kind, for_record) = (job.kind, job.for_record);
                 let job_target = job.target.clone();
                 let select_shot = job.select_shot;
                 let job_windows = job.windows.lock().map(|w| w.clone()).unwrap_or_default();
                 self.job = None;
                 match (res.first().cloned(), for_record || select_shot) {
-                    (Some(p), false) => self.handle_capture(ctx, p, show_after, job_target),
+                    (Some(p), false) => self.handle_capture(ctx, p, job_target),
                     (Some(_), true) if select_shot => {
                         let screens = self.sel_screens(&res);
                         let previous = if kind == CaptureKind::Previous { self.last_area } else { None };
@@ -386,7 +386,7 @@ impl LightSnap {
                                 focused: false,
                                 resent: 0,
                                 countdown: None,
-                                shot: Some(show_after),
+                                shot: true,
                                 target: job_target,
                                 placed: false,
                                 shown: 0,
@@ -418,7 +418,7 @@ impl LightSnap {
                                 focused: false,
                                 resent: 0,
                                 countdown: None,
-                                shot: None,
+                                shot: false,
                                 target: None,
                                 placed: false,
                                 shown: 0,
@@ -437,8 +437,6 @@ impl LightSnap {
                         let asks = matches!(kind, CaptureKind::Area | CaptureKind::Previous | CaptureKind::Window);
                         if !asks && !platform::screenshot_allowed() {
                             self.perm_prompt = true;
-                            self.show_window(ctx);
-                        } else if show_after {
                             self.show_window(ctx);
                         }
                     }
