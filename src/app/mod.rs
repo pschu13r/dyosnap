@@ -73,8 +73,8 @@ const PALETTE: [Color32; 10] = [
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     Capture(CaptureKind),
-    /// Capture an area into extra folder N (1-based): no editor, saved and copied.
-    CaptureTo(usize),
+    /// Capture an area into the extra folder with id N: no editor, saved and copied.
+    CaptureTo(u32),
     Record,
     Show,
     OpenImage,

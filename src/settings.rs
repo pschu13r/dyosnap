@@ -157,15 +157,23 @@ pub const HOTKEY_ACTIONS: [(&str, &str); 8] = [
 /// How many extra save folders there can be.
 pub const MAX_EXTRA_DIRS: usize = 9;
 
-/// The shortcut action id of extra folder `n` (1-based): "folder1" ... "folder9".
-pub fn folder_action(n: usize) -> String {
-    format!("folder{n}")
+/// The shortcut action id of the extra folder with `id`: "folder1", "folder2", ...
+pub fn folder_action(id: u32) -> String {
+    format!("folder{id}")
 }
 
-/// The 1-based number of an extra folder's action id; None for any other id.
-pub fn folder_number(id: &str) -> Option<usize> {
-    let n: usize = id.strip_prefix("folder")?.parse().ok()?;
-    (1..=MAX_EXTRA_DIRS).contains(&n).then_some(n)
+/// The folder id inside a shortcut action id ("folder4" is 4); None for any other id.
+pub fn folder_id(action: &str) -> Option<u32> {
+    let id: u32 = action.strip_prefix("folder")?.parse().ok()?;
+    (id >= 1).then_some(id)
+}
+
+/// An extra save folder. Its id never changes and is never used again, so its shortcut
+/// (the action "folder<id>", also kept by the desktop on Linux) stays with it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtraDir {
+    pub id: u32,
+    pub path: PathBuf,
 }
 
 /// A folder's short name: the last path component ("Work" for "/home/me/Work").
@@ -262,9 +270,11 @@ impl Quality {
 #[serde(default)]
 pub struct Settings {
     pub save_dir: PathBuf,
-    /// More folders to save an area into by shortcut (up to `MAX_EXTRA_DIRS`). The shortcut
-    /// of the folder at position N (1-based) is the key "folderN" in `keys`.
-    pub extra_dirs: Vec<PathBuf>,
+    /// More folders to save an area into by shortcut (up to `MAX_EXTRA_DIRS`), in the order
+    /// shown. The shortcut of the folder with id N is the key "folderN" in `keys`.
+    pub extra_dirs: Vec<ExtraDir>,
+    /// The id the next added folder gets. Only goes up.
+    pub next_folder_id: u32,
     pub format: ImageFormat,
     pub after_capture: AfterCapture,
     pub delay_secs: u32,
@@ -314,6 +324,7 @@ impl Default for Settings {
         Self {
             save_dir: base.join("LightSnap"),
             extra_dirs: Vec::new(),
+            next_folder_id: 1,
             format: ImageFormat::Png,
             after_capture: AfterCapture::OpenEditor,
             delay_secs: 5,
@@ -443,8 +454,8 @@ impl Settings {
 
     /// What a shortcut does, in the desktop's own list of shortcuts (Linux).
     pub fn action_description(&self, id: &str) -> String {
-        if let Some(d) = folder_number(id).and_then(|n| self.extra_dirs.get(n - 1)) {
-            return format!("Capture area to {}", dir_name(d));
+        if let Some(d) = self.extra_dir(id) {
+            return format!("Capture area to {}", dir_name(&d.path));
         }
         HOTKEY_ACTIONS
             .iter()
@@ -454,30 +465,31 @@ impl Settings {
             .unwrap_or_else(|| id.to_string())
     }
 
-    /// Adds an extra folder. Returns false (and changes nothing) when it is the save
-    /// folder, is listed already, or there are `MAX_EXTRA_DIRS`.
-    pub fn add_extra_dir(&mut self, dir: PathBuf) -> bool {
-        if self.extra_dirs.len() >= MAX_EXTRA_DIRS || dir == self.save_dir || self.extra_dirs.contains(&dir) {
+    /// The extra folder a shortcut action id ("folder4") belongs to, if it still exists.
+    pub fn extra_dir(&self, action: &str) -> Option<&ExtraDir> {
+        let id = folder_id(action)?;
+        self.extra_dirs.iter().find(|d| d.id == id)
+    }
+
+    /// Adds an extra folder with a new id. Returns false (and changes nothing) when it is
+    /// the save folder, is listed already, or there are `MAX_EXTRA_DIRS`.
+    pub fn add_extra_dir(&mut self, path: PathBuf) -> bool {
+        if self.extra_dirs.len() >= MAX_EXTRA_DIRS || path == self.save_dir || self.extra_dirs.iter().any(|d| d.path == path) {
             return false;
         }
-        self.extra_dirs.push(dir);
+        // Also above every id in the list, in case the file was edited by hand.
+        let above = self.extra_dirs.iter().map(|d| d.id + 1).max().unwrap_or(1);
+        let id = self.next_folder_id.max(above);
+        self.next_folder_id = id + 1;
+        self.extra_dirs.push(ExtraDir { id, path });
         true
     }
 
-    /// Removes the extra folder at `index` (0-based). Its shortcut goes with it, and the
-    /// shortcuts of the folders after it move down one place, so each key stays with its folder.
-    pub fn remove_extra_dir(&mut self, index: usize) {
-        if index >= self.extra_dirs.len() {
-            return;
-        }
-        let count = self.extra_dirs.len();
-        self.extra_dirs.remove(index);
-        self.keys.remove(&folder_action(index + 1));
-        for n in index + 2..=count {
-            if let Some(k) = self.keys.remove(&folder_action(n)) {
-                self.keys.insert(folder_action(n - 1), k);
-            }
-        }
+    /// Removes the extra folder with `id` and its shortcut. The other folders keep their ids
+    /// and keys; the id is not used again.
+    pub fn remove_extra_dir(&mut self, id: u32) {
+        self.extra_dirs.retain(|d| d.id != id);
+        self.keys.remove(&folder_action(id));
     }
 }
 
@@ -510,28 +522,48 @@ mod tests {
         Some(Hotkey::new(true, true, code))
     }
 
+    fn ids(s: &Settings) -> Vec<u32> {
+        s.extra_dirs.iter().map(|d| d.id).collect()
+    }
+
     #[test]
-    fn removing_a_folder_shifts_the_keys_after_it() {
+    fn removing_a_folder_keeps_the_ids_and_keys_of_the_others() {
         let mut s = Settings::default();
-        for d in ["/a", "/b", "/c", "/d"] {
+        for d in ["/a", "/b", "/c"] {
             assert!(s.add_extra_dir(d.into()));
         }
+        assert_eq!(ids(&s), [1, 2, 3]);
         s.keys.insert("folder1".into(), hk("Digit1"));
+        s.keys.insert("folder2".into(), hk("Digit2"));
         s.keys.insert("folder3".into(), hk("Digit3"));
-        s.keys.insert("folder4".into(), None);
         s.keys.insert("area".into(), hk("Digit9"));
-        s.remove_extra_dir(1); // "/b" goes; "/c" (key 3) becomes folder 2, "/d" folder 3
-        assert_eq!(s.extra_dirs, [PathBuf::from("/a"), "/c".into(), "/d".into()]);
-        assert_eq!(s.keys.get("folder1"), Some(&hk("Digit1")));
-        assert_eq!(s.keys.get("folder2"), Some(&hk("Digit3")));
-        assert_eq!(s.keys.get("folder3"), Some(&None));
-        assert!(!s.keys.contains_key("folder4"));
+        s.remove_extra_dir(1);
+        assert_eq!(ids(&s), [2, 3]);
+        assert_eq!(s.extra_dirs[0].path, PathBuf::from("/b"));
+        assert!(!s.keys.contains_key("folder1"));
+        assert_eq!(s.keys.get("folder2"), Some(&hk("Digit2")));
+        assert_eq!(s.keys.get("folder3"), Some(&hk("Digit3")));
         assert_eq!(s.keys.get("area"), Some(&hk("Digit9")));
-        // The key of the removed folder goes with it.
-        s.remove_extra_dir(0);
-        assert_eq!(s.keys.get("folder1"), Some(&hk("Digit3")));
-        s.remove_extra_dir(7); // out of range: nothing happens
+        // The id of a removed folder finds nothing.
+        assert!(s.extra_dir("folder1").is_none());
+        assert_eq!(s.extra_dir("folder3").map(|d| d.path.clone()), Some(PathBuf::from("/c")));
+        s.remove_extra_dir(42); // unknown: nothing happens
         assert_eq!(s.extra_dirs.len(), 2);
+    }
+
+    #[test]
+    fn a_new_folder_after_a_removal_gets_a_new_id() {
+        let mut s = Settings::default();
+        s.add_extra_dir("/a".into());
+        s.add_extra_dir("/b".into());
+        s.remove_extra_dir(2);
+        s.add_extra_dir("/c".into());
+        assert_eq!(ids(&s), [1, 3]);
+        assert_eq!(s.next_folder_id, 4);
+        // A hand-edited file with a too low counter still gets a free id.
+        s.next_folder_id = 1;
+        s.add_extra_dir("/d".into());
+        assert_eq!(ids(&s), [1, 3, 4]);
     }
 
     #[test]
@@ -550,12 +582,11 @@ mod tests {
     #[test]
     fn folder_ids_and_names() {
         assert_eq!(folder_action(3), "folder3");
-        assert_eq!(folder_number("folder3"), Some(3));
-        assert_eq!(folder_number("folder9"), Some(9));
-        assert_eq!(folder_number("folder0"), None);
-        assert_eq!(folder_number("folder10"), None);
-        assert_eq!(folder_number("folder"), None);
-        assert_eq!(folder_number("area"), None);
+        assert_eq!(folder_id("folder3"), Some(3));
+        assert_eq!(folder_id("folder12"), Some(12));
+        assert_eq!(folder_id("folder0"), None);
+        assert_eq!(folder_id("folder"), None);
+        assert_eq!(folder_id("area"), None);
         assert_eq!(dir_name(Path::new("/home/me/Work")), "Work");
         assert_eq!(dir_name(Path::new("/home/me/Work/")), "Work");
         assert_eq!(dir_name(Path::new("/")), "/");
@@ -569,6 +600,7 @@ mod tests {
     fn old_settings_load_without_extra_dirs() {
         let s: Settings = serde_json::from_str(r#"{"sound": true}"#).unwrap();
         assert!(s.extra_dirs.is_empty());
+        assert_eq!(s.next_folder_id, 1);
         assert!(s.sound);
     }
 }

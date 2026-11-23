@@ -4,7 +4,7 @@
 use crate::icons::{self, Icon};
 use crate::settings::{
     AfterCapture, ClipFormat, HOTKEY_ACTIONS, Hotkey, ImageFormat, MAX_EXTRA_DIRS, Settings, VIDEO_HOTKEY_ACTIONS,
-    VideoFormat, dir_name, folder_action, folder_number,
+    VideoFormat, dir_name, folder_action,
 };
 use egui::{
     Align, Align2, Color32, FontId, Key, Layout, Rect, Sense, Stroke, Ui, Vec2, ViewportBuilder, ViewportCommand,
@@ -557,29 +557,27 @@ impl Prefs {
     /// The extra save folders under the "Save folder" row, and the button to add one.
     fn extra_dirs(&mut self, ui: &mut Ui, s: &mut Settings, out: &mut PrefsOut) {
         let mut remove = None;
-        for (i, dir) in s.extra_dirs.iter().enumerate() {
+        for dir in s.extra_dirs.iter() {
             row(ui, "", |ui| {
                 ui.allocate_ui_with_layout(vec2(CTRL_W, ROW_H), Layout::right_to_left(Align::Center), |ui| {
                     ui.set_width(CTRL_W);
                     if x_button(ui, "Remove this folder") {
-                        remove = Some(i);
+                        remove = Some(dir.id);
                     }
                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                         let (r, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
                         icons::draw(ui.painter(), r, Icon::Folder, Color32::from_rgb(110, 170, 240));
-                        ui.add(egui::Label::new(egui::RichText::new(short_path(dir)).color(TEXT)).truncate())
-                            .on_hover_text(dir.display().to_string());
+                        ui.add(egui::Label::new(egui::RichText::new(short_path(&dir.path)).color(TEXT)).truncate())
+                            .on_hover_text(dir.path.display().to_string());
                     });
                 });
             });
         }
-        if let Some(i) = remove {
-            // The keys of the folders after it move down: a key being recorded would land
-            // on the wrong folder.
-            if self.capturing.as_deref().is_some_and(|id| folder_number(id).is_some()) {
+        if let Some(id) = remove {
+            if self.capturing.as_deref() == Some(folder_action(id).as_str()) {
                 self.cancel_capture(out);
             }
-            s.remove_extra_dir(i);
+            s.remove_extra_dir(id);
             out.changed = true;
             out.hotkeys_changed = true;
         }
@@ -635,7 +633,7 @@ impl Prefs {
             ui.add_space(4.0);
             ui.label(
                 egui::RichText::new(
-                    "Your desktop manages global shortcuts. On GNOME, change them in Settings › Apps › LightSnap.",
+                    "Your desktop manages global shortcuts. Change them in GNOME Settings › Apps › LightSnap or KDE System Settings › Shortcuts.",
                 )
                 .color(DIM),
             );
@@ -738,7 +736,7 @@ impl Prefs {
 /// The actions of the Screenshots tab's shortcuts, as (id, label): the fixed ones, then
 /// one "Capture area to <folder>" for each extra folder.
 fn screenshot_actions(s: &Settings) -> Vec<(String, String)> {
-    let folders = s.extra_dirs.iter().take(MAX_EXTRA_DIRS).enumerate().map(|(i, d)| (folder_action(i + 1), format!("Capture area to {}", dir_name(d))));
+    let folders = s.extra_dirs.iter().map(|d| (folder_action(d.id), format!("Capture area to {}", dir_name(&d.path))));
     HOTKEY_ACTIONS
         .iter()
         .filter(|(id, _)| *id != "record")
@@ -749,7 +747,7 @@ fn screenshot_actions(s: &Settings) -> Vec<(String, String)> {
 
 /// The full path of the extra folder behind a shortcut id, for the row's hover text.
 fn folder_path(s: &Settings, id: &str) -> Option<String> {
-    folder_number(id).and_then(|n| s.extra_dirs.get(n - 1)).map(|d| d.display().to_string())
+    s.extra_dir(id).map(|d| d.path.display().to_string())
 }
 
 /// A small × button. Returns true when clicked.

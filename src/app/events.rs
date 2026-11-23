@@ -3,7 +3,7 @@
 use super::*;
 
 pub(super) fn action_from_id(id: &str, delay: u32) -> Option<Action> {
-    if let Some(n) = crate::settings::folder_number(id) {
+    if let Some(n) = crate::settings::folder_id(id) {
         return Some(Action::CaptureTo(n));
     }
     Some(match id {
@@ -99,7 +99,7 @@ impl LightSnap {
         // Linux announces every action, so the desktop can list those without a key too.
         let st = &self.settings;
         let keys: Vec<(String, String, Option<crate::settings::Hotkey>)> = if st.hotkeys {
-            let folders = (1..=st.extra_dirs.len().min(crate::settings::MAX_EXTRA_DIRS)).map(crate::settings::folder_action);
+            let folders = st.extra_dirs.iter().map(|d| crate::settings::folder_action(d.id));
             crate::settings::HOTKEY_ACTIONS
                 .iter()
                 .chain(crate::settings::VIDEO_HOTKEY_ACTIONS.iter())
@@ -149,7 +149,8 @@ impl LightSnap {
         match a {
             Action::Capture(kind) => self.start_capture(ctx, kind, false),
             Action::CaptureTo(n) => {
-                if let Some(dir) = self.settings.extra_dirs.get(n.wrapping_sub(1)).cloned() {
+                // A shortcut of a folder that was removed does nothing.
+                if let Some(dir) = self.settings.extra_dirs.iter().find(|d| d.id == n).map(|d| d.path.clone()) {
                     self.start_capture_to(ctx, CaptureKind::Area, Some(dir));
                 }
             }
@@ -550,9 +551,8 @@ mod tests {
     fn folder_ids_start_a_capture_into_that_folder() {
         assert_eq!(action_from_id("folder3", 5), Some(Action::CaptureTo(3)));
         assert_eq!(action_from_id("folder1", 5), Some(Action::CaptureTo(1)));
-        assert_eq!(action_from_id("folder9", 5), Some(Action::CaptureTo(9)));
+        assert_eq!(action_from_id("folder12", 5), Some(Action::CaptureTo(12)));
         assert_eq!(action_from_id("folder0", 5), None);
-        assert_eq!(action_from_id("folder10", 5), None);
         // The tray's "folder" item still opens the save folder.
         assert_eq!(action_from_id("folder", 5), Some(Action::OpenFolder));
         assert_eq!(action_from_id("area", 5), Some(Action::Capture(CaptureKind::Area)));
