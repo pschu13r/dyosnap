@@ -337,7 +337,15 @@ impl Prefs {
                     if let (true, Some(off)) = (cfg!(debug_assertions), std::env::var("LS_PREFS_SCROLL").ok()) {
                         area = area.vertical_scroll_offset(off.parse().unwrap_or(0.0));
                     }
-                    area.show(ui, |ui| self.screenshots(ui, s, out));
+                    let shown = area.show(ui, |ui| self.screenshots(ui, s, out));
+                    // Rows scrolled under an edge fade out, instead of showing half a row.
+                    let view = shown.inner_rect;
+                    if shown.state.offset().y > 0.0 {
+                        fade_edge(ui.painter(), view, true);
+                    }
+                    if shown.state.offset().y + view.height() < shown.content_size.y - 1.0 {
+                        fade_edge(ui.painter(), view, false);
+                    }
                 }
                 Tab::Video => self.video(ui, s, out),
                 Tab::About => crate::about::draw(ui, &mut self.about_icon),
@@ -796,6 +804,27 @@ fn row_full(ui: &mut Ui, label: &str, hover: Option<&str>, label_w: f32, gap: f3
         ui.add_space(gap);
         add(ui);
     });
+}
+
+/// Height of the fade at the edge of a scroll area.
+const FADE_H: f32 = 12.0;
+
+/// A short gradient over the top or bottom edge of `view`: the background color at the edge,
+/// clear towards the inside. Painted on top, so it changes no layout.
+fn fade_edge(painter: &egui::Painter, view: Rect, top: bool) {
+    let (outer, inner) = if top {
+        (view.min.y, view.min.y + FADE_H)
+    } else {
+        (view.max.y, view.max.y - FADE_H)
+    };
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(pos2(view.min.x, outer), BG);
+    mesh.colored_vertex(pos2(view.max.x, outer), BG);
+    mesh.colored_vertex(pos2(view.max.x, inner), Color32::TRANSPARENT);
+    mesh.colored_vertex(pos2(view.min.x, inner), Color32::TRANSPARENT);
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    painter.add(egui::Shape::mesh(mesh));
 }
 
 fn separator(ui: &mut Ui) {
