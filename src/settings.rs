@@ -170,8 +170,8 @@ pub fn default_hotkey(id: &str) -> Option<Hotkey> {
     let linux = cfg!(target_os = "linux");
     match id {
         "area" => Some(Hotkey::new(true, linux, "Digit4")),
-        // Linux: shortcuts are set in the desktop's settings, which list only the ones
-        // LightSnap asks for with a key.
+        // Linux: these are only suggestions. The desktop's settings list every action and
+        // the person can assign or change them there.
         "previous" if linux => Some(Hotkey { shift: true, ..Hotkey::new(true, true, "Digit4") }),
         "full" => Some(Hotkey::new(true, true, "Digit6")),
         "timed" => Some(Hotkey::new(true, linux, "Digit2")),

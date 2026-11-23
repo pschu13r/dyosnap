@@ -253,13 +253,13 @@ impl Tray {
 pub struct Hotkeys {
     tx: Sender<Cmd>,
     muted: Arc<AtomicBool>,
-    last: Vec<(String, Hotkey)>,
+    last: Vec<(String, Option<Hotkey>)>,
     live: Arc<Mutex<Option<HashMap<String, String>>>>,
     version: Arc<std::sync::atomic::AtomicU32>,
 }
 
 enum Cmd {
-    Bind(Vec<(String, Hotkey)>),
+    Bind(Vec<(String, Option<Hotkey>)>),
     Configure,
 }
 
@@ -294,10 +294,11 @@ impl Hotkeys {
         let _ = self.tx.send(Cmd::Configure);
     }
 
-    /// Replaces all shortcuts. Each pair is (action id, key). An empty list only mutes
+    /// Replaces all shortcuts. Each pair is (action id, key). Actions without a key are still
+    /// announced, so the desktop lists them and the person can assign one. An empty list only mutes
     /// them (while a new key is being chosen in the settings): binding again would make
     /// the desktop ask again.
-    pub fn set(&mut self, keys: &[(String, Hotkey)]) {
+    pub fn set(&mut self, keys: &[(String, Option<Hotkey>)]) {
         if keys.is_empty() {
             self.muted.store(true, Ordering::SeqCst);
             return;
@@ -423,7 +424,13 @@ async fn run(rx: std::sync::mpsc::Receiver<Cmd>, shared: Shared) {
         let Ok(s) = portal.create_session(Default::default()).await else { continue };
         let shortcuts: Vec<NewShortcut> = keys
             .iter()
-            .map(|(id, k)| NewShortcut::new(id.as_str(), description(id)).preferred_trigger(Some(trigger(k).as_str())))
+            .map(|(id, k)| {
+                let s = NewShortcut::new(id.as_str(), description(id));
+                match k {
+                    Some(k) => s.preferred_trigger(Some(trigger(k).as_str())),
+                    None => s,
+                }
+            })
             .collect();
         match portal.bind_shortcuts(&s, &shortcuts, None, Default::default()).await.and_then(|r| r.response()) {
             Ok(r) => shared.set_live(r.shortcuts()),

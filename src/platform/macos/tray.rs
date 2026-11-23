@@ -128,13 +128,13 @@ impl Hotkeys {
 
     pub fn configure(&self) {}
 
-    /// Replaces all shortcuts. Each pair is (action id, key).
-    pub fn set(&mut self, keys: &[(String, Hotkey)]) {
+    /// Replaces all shortcuts. Each pair is (action id, key). Actions without a key are skipped.
+    pub fn set(&mut self, keys: &[(String, Option<Hotkey>)]) {
         let _ = self.mgr.unregister_all(&self.keys);
         self.keys.clear();
         let mut reg = Vec::new();
         for (id, k) in keys {
-            let Some(hk) = to_global_hotkey(k) else { continue };
+            let Some(hk) = k.as_ref().and_then(to_global_hotkey) else { continue };
             if self.mgr.register(hk).is_ok() {
                 self.keys.push(hk);
                 reg.push((hk.id(), id.clone()));

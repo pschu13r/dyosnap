@@ -93,12 +93,14 @@ impl LightSnap {
 
     /// (Re)registers the global shortcuts from the settings.
     pub(super) fn register_hotkeys(&mut self) {
-        let keys: Vec<(String, crate::settings::Hotkey)> = if self.settings.hotkeys {
+        // Linux announces every action, so the desktop can list those without a key too.
+        let keys: Vec<(String, Option<crate::settings::Hotkey>)> = if self.settings.hotkeys {
             crate::settings::HOTKEY_ACTIONS
                 .iter()
                 .chain(crate::settings::VIDEO_HOTKEY_ACTIONS.iter())
                 .filter(|(id, _)| action_from_id(id, self.settings.delay_secs).is_some())
-                .filter_map(|(id, _)| self.settings.hotkey(id).map(|k| (id.to_string(), k)))
+                .map(|(id, _)| (id.to_string(), self.settings.hotkey(id)))
+                .filter(|(_, k)| cfg!(target_os = "linux") || k.is_some())
                 .collect()
         } else {
             Vec::new()
