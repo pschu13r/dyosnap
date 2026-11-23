@@ -31,20 +31,11 @@ these clicks, keeps videos small and is free and open source. Many also get wors
 subscriptions, ads, and more memory with every update. When my last tool started to
 leak several GB of memory, I built my own.
 
-I built DyoSnap to remove my own pain and to optimise my own daily work. Lifetime is
+I built DyoSnap to remove my own pain and to make my own daily work faster. My time is
 valuable, and I don't want to spend it on extra clicks.
 
 Now I have exactly the simple, lightweight tool I need every day. Maybe you will find
 it useful too.
-
-## The name
-
-DyoSnap was called LightSnap up to v1.0.0. "LightSnap" was already used by several other
-products, so I renamed it. The new name comes from the Greek δύο (*dyo*, "two"), for the
-app's two jobs: screenshots and screen recordings.
-
-They say the two classic hard problems in software are caching and naming. Caching was
-no problem here. Naming all the more.
 
 - **Fewer clicks:** every capture goes to the clipboard right away, and every edit
   updates it. No extra copy step after you annotate.
@@ -60,6 +51,15 @@ no problem here. Naming all the more.
   connections. Your captures stay on your computer.
 - **Simple:** no frills, no setup. Pick an area, annotate, done.
 - **Yours to keep:** MIT license. If the project ever goes a way you don't like, fork it.
+
+## The name
+
+DyoSnap was called LightSnap up to v1.0.0. "LightSnap" was already used by several other
+products, so I renamed it. The new name comes from the Greek δύο (*dyo*, "two"), for the
+app's two jobs: screenshots and screen recordings.
+
+They say the two classic hard problems in software are caching and naming. Caching was
+no problem here. Naming all the more.
 
 ## Requirements
 
