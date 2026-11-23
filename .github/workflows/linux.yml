@@ -1,4 +1,4 @@
-# Builds the Linux packages (x86_64 and arm64). Runs by hand and for every version
+# Builds the Linux packages (.tar.gz, .deb and .rpm for x86_64 and arm64). Runs by hand and for every version
 # tag; for a tag it also attaches the packages to that release, if it exists.
 #
 # The build runs third-party code (crate build scripts, cargo-about), so it only gets a
@@ -31,13 +31,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             pkg-config clang libclang-dev libpipewire-0.3-dev libspa-0.2-dev \
-            libwayland-dev libxkbcommon-dev libdbus-1-dev
+            libwayland-dev libxkbcommon-dev libdbus-1-dev dpkg-dev
 
-      - name: Install Rust and cargo-about
+      - name: Install Rust, cargo-about, cargo-deb and cargo-generate-rpm
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
           cargo install --locked --features cli cargo-about
+          cargo install --locked cargo-deb cargo-generate-rpm
 
       - name: Test
         run: cargo test --locked
@@ -48,7 +49,10 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: dyosnap-linux-${{ runner.arch }}
-          path: dist/*.tar.gz
+          path: |
+            dist/*.tar.gz
+            dist/*.deb
+            dist/*.rpm
 
   release:
     needs: build
@@ -69,7 +73,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dist/*.tar.gz --clobber
+            gh release upload "$GITHUB_REF_NAME" dist/*.tar.gz dist/*.deb dist/*.rpm --clobber
           else
             echo "No release $GITHUB_REF_NAME yet; the packages are in the run's artifacts."
           fi

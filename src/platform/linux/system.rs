@@ -112,8 +112,9 @@ pub fn editor_label(app: &str) -> String {
 
 /// Runs once at start. Makes sure the desktop knows DyoSnap: a .desktop file with
 /// DyoSnap's app id gives it its name and icon, and the portals need it to remember
-/// what was allowed. A package or AppImage tool that installed one wins; otherwise one
-/// goes into ~/.local/share and is kept pointing at this binary.
+/// what was allowed. A package (.deb, .rpm) or AppImage tool that installed one wins, and
+/// DyoSnap's own copy in ~/.local/share goes; otherwise that copy is kept pointing at
+/// this binary.
 pub fn prepare() {
     migrate_old_app_id();
     let name = format!("{}.desktop", super::APP_ID);
@@ -125,6 +126,10 @@ pub fn prepare() {
         .any(|d| Path::new(d).join("applications").join(&name).is_file());
     let Some(data) = user_dir else { return };
     if installed_elsewhere {
+        // A copy from an earlier tarball start would hide the package's entry and start
+        // the old binary from the app list.
+        let _ = std::fs::remove_file(data.join("applications").join(&name));
+        let _ = std::fs::remove_file(data.join("icons/hicolor/256x256/apps").join(format!("{}.png", super::APP_ID)));
         return;
     }
     let exe = std::env::var_os("APPIMAGE").map(PathBuf::from).or_else(|| std::env::current_exe().ok());

@@ -121,14 +121,23 @@ Plasma.
 
 ### Install (Linux)
 
-Download `DyoSnap-<version>-linux-<arch>.tar.gz` from
-[Releases](https://github.com/pschu13r/dyosnap/releases), unpack it anywhere and start
-`dyosnap`. On first start it adds itself to your app list (`~/.local/share/applications`).
+Download the package for your system from
+[Releases](https://github.com/pschu13r/dyosnap/releases) (`x86_64`/`amd64` for most PCs,
+`aarch64`/`arm64` for ARM):
+
+- **Ubuntu, Debian:** `dyosnap_<version>-1_<arch>.deb`, then
+  `sudo apt install ./dyosnap_<version>-1_<arch>.deb`. This also installs ffmpeg.
+- **Fedora, openSUSE:** `dyosnap-<version>-1.<arch>.rpm`, then
+  `sudo dnf install ./dyosnap-<version>-1.<arch>.rpm` (openSUSE: `sudo zypper install …`).
+  See the ffmpeg note below.
+- **Other distributions:** `DyoSnap-<version>-linux-<arch>.tar.gz`. Unpack it anywhere and
+  start `dyosnap`. On first start it adds itself to your app list
+  (`~/.local/share/applications`).
 
 DyoSnap also needs:
 
 - **ffmpeg with x264** for recordings. To check, run `ffmpeg -encoders | grep libx264`.
-  - Ubuntu, Debian: `sudo apt install ffmpeg`
+  - Ubuntu, Debian: `sudo apt install ffmpeg` (the .deb does this for you)
   - Fedora: the default `ffmpeg-free` has no x264. Enable
     [RPM Fusion](https://rpmfusion.org/Configuration), then run
     `sudo dnf swap ffmpeg-free ffmpeg --allowerasing`.
@@ -183,8 +192,11 @@ Ubuntu/Debian package names:
 sudo apt install build-essential pkg-config clang libclang-dev libpipewire-0.3-dev \
   libspa-0.2-dev libwayland-dev libxkbcommon-dev libdbus-1-dev ffmpeg
 cargo run                      # run from source
-./scripts/bundle-linux.sh      # build dist/DyoSnap-<version>-linux-<arch>.tar.gz
+./scripts/bundle-linux.sh      # build the .tar.gz, .deb and .rpm in dist/
 ```
+
+`bundle-linux.sh` also needs `cargo install --locked cargo-deb cargo-generate-rpm` and
+`dpkg-dev`.
 
 The GitHub workflow `.github/workflows/linux.yml` builds the packages for x86_64 and arm64.
 
