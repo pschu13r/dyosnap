@@ -122,6 +122,17 @@ fn run_linux(
                 // The record area is chosen in this window, over the whole screen.
                 options.viewport = options.viewport.with_fullscreen(true).with_decorations(false);
             }
+            if let Some((size, title)) = state.borrow_mut().window_opening() {
+                // Only Preferences is wanted: a window like Preferences' own.
+                options.viewport = options
+                    .viewport
+                    .with_title(title)
+                    .with_inner_size(size)
+                    .with_resizable(false)
+                    .with_minimize_button(false)
+                    .with_maximize_button(false);
+                options.viewport.min_inner_size = None;
+            }
             let st = state.clone();
             let reattach = !first;
             platform::main_window_open(true);

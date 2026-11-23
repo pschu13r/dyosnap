@@ -164,145 +164,177 @@ impl Prefs {
         }
         let mut close = false;
         crate::show_immediate(ctx, ViewportId::from_hash_of("lightsnap_prefs"), builder, |ui, _| {
-            let ctx = ui.ctx().clone();
-            // Keep the window in front for a moment: when it was opened from the menu-bar
-            // menu, macOS hands the focus back to the app that was in front when the menu
-            // closes, which can be a few frames later.
-            if self.focus_tries > 0 {
-                self.focus_tries -= 1;
-                let focused = ctx.input(|i| i.viewport().focused) == Some(true);
-                if !focused {
-                    ctx.send_viewport_cmd(ViewportCommand::Focus);
-                    // From the second frame on the window exists and can be put in front
-                    // of other apps' windows too.
-                    if self.focus_tries < FOCUS_FRAMES - 1 {
-                        crate::platform::raise_window("LightSnap | ");
-                    }
-                    if self.focus_tries == 0 {
-                        log::info!("preferences: could not take the focus");
-                    }
-                }
-                // The frames must go on while the main window is covered by another app.
-                ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::RequestPaintWhileHidden);
-                ctx.request_repaint_after(std::time::Duration::from_millis(30));
-            }
-            if self.sized_for != Some(self.tab) {
-                self.sized_for = Some(self.tab);
-                self.content_h = 0.0;
-                ctx.send_viewport_cmd(ViewportCommand::Title(format!("LightSnap | {}", self.tab.name())));
-            }
-            if ctx.input(|i| i.viewport().close_requested()) {
-                close = true;
-            }
-            if self.capturing.is_none() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, Key::W)) {
-                close = true;
-            }
-            let full = ui.max_rect();
-            if ctx.embed_viewports() {
-                let h = if self.content_h > 0.0 { self.content_h } else { 420.0 };
-                let extra = h + self.embed_extra - full.height();
-                if (extra - self.embed_extra).abs() > 0.5 {
-                    self.embed_extra = extra;
-                    ctx.request_repaint();
-                }
-            }
-            ui.painter().rect_filled(full, 0.0, BG);
-
-            // Tab bar
-            let header = Rect::from_min_size(full.min, vec2(full.width(), HEADER_H));
-            ui.painter().rect_filled(header, 0.0, HEADER);
-            ui.painter().line_segment(
-                [header.left_bottom(), header.right_bottom()],
-                Stroke::new(1.0, Color32::from_gray(24)),
-            );
-            let tabs = [Tab::General, Tab::Advanced, Tab::Hotkeys, Tab::About];
-            let tw = 66.0;
-            let x0 = header.center().x - tw * tabs.len() as f32 / 2.0;
-            for (i, t) in tabs.iter().enumerate() {
-                let r = Rect::from_min_size(pos2(x0 + i as f32 * tw + 3.0, header.min.y + 6.0), vec2(tw - 6.0, 54.0));
-                let resp = ui.interact(r, egui::Id::new(("tab", i)), Sense::click());
-                let sel = *t == self.tab;
-                if sel {
-                    ui.painter().rect_filled(r, 6.0, TAB_SEL);
-                }
-                let col = if sel { ACCENT } else if resp.hovered() { TEXT } else { DIM };
-                icons::draw(
-                    ui.painter(),
-                    Rect::from_center_size(pos2(r.center().x, r.min.y + 20.0), vec2(27.0, 27.0)),
-                    t.icon(),
-                    if sel { Color32::from_gray(200) } else { DIM },
-                );
-                ui.painter().text(
-                    pos2(r.center().x, r.max.y - 9.0),
-                    Align2::CENTER_CENTER,
-                    t.name(),
-                    FontId::proportional(12.0),
-                    col,
-                );
-                if resp.clicked() && !sel {
-                    self.tab = *t;
-                    self.cancel_capture(&mut out);
-                }
-            }
-
-            let body = Rect::from_min_max(pos2(full.min.x + 12.0, header.max.y + 12.0), full.max - vec2(12.0, 10.0));
-            let used = ui.scope_builder(egui::UiBuilder::new().max_rect(body).layout(Layout::top_down(Align::Min)), |ui| {
-                {
-                    let st = ui.style_mut();
-                    st.spacing.item_spacing = vec2(6.0, 5.0);
-                    st.spacing.interact_size.y = 22.0;
-                    st.spacing.button_padding = vec2(8.0, 2.0);
-                    st.spacing.icon_width = 15.0;
-                    st.spacing.icon_width_inner = 9.0;
-                    for (ts, f) in st.text_styles.iter_mut() {
-                        f.size = match ts {
-                            egui::TextStyle::Small => 11.0,
-                            egui::TextStyle::Heading => 15.0,
-                            _ => FONT,
-                        };
-                    }
-                }
-                match self.tab {
-                    Tab::General => self.general(ui, s, &mut out),
-                    Tab::Advanced => self.advanced(ui, s, &mut out),
-                    Tab::Hotkeys => self.hotkeys(ui, s, &mut out),
-                    Tab::About => crate::about::draw(ui, &mut self.about_icon),
-                }
-                ui.min_rect().height()
-            });
-            // Fit the window height to the tab's contents.
-            let want = HEADER_H + 12.0 + used.inner + 16.0;
-            if (want - self.content_h).abs() > 1.0 {
-                self.content_h = want;
-                if ctx.embed_viewports() {
-                    // Check pictures: the command would resize the main window.
-                    ctx.request_repaint();
-                } else {
-                    self.size_checks = 20;
-                    ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(size.x, want)));
-                }
-            }
-            // A new window may not exist yet when the size is sent (Wayland), and then the
-            // request is lost. So send it again until the window has the height. Wayland
-            // never reports the size, so there it is sent for the first 20 frames.
-            if self.size_checks > 0 && !ctx.embed_viewports() {
-                match ctx.input(|i| i.viewport().inner_rect) {
-                    Some(r) if (r.height() - want).abs() <= 1.0 => self.size_checks = 0,
-                    _ => {
-                        self.size_checks -= 1;
-                        ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(size.x, want)));
-                        ctx.request_repaint_after(std::time::Duration::from_millis(50));
-                    }
-                }
-            }
+            close = self.draw(ui, s, &mut out);
         });
         if close {
-            self.open = false;
-            self.sized_for = None;
-            self.cancel_capture(&mut out);
-            out.changed = true;
+            self.close(&mut out);
         }
         out
+    }
+
+    /// Linux: the size and title of a window that only shows Preferences: the width of the
+    /// tab and the last fitted height.
+    #[cfg(target_os = "linux")]
+    pub fn window_size(&self) -> Vec2 {
+        vec2(self.tab.size().x, if self.content_h > 0.0 { self.content_h } else { 420.0 })
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn window_title(&self) -> String {
+        format!("LightSnap | {}", self.tab.name())
+    }
+
+    /// Linux: no waiting for the main window's focus (see `show`), there is no such window.
+    #[cfg(target_os = "linux")]
+    pub fn skip_wait(&mut self) {
+        self.wait = 0;
+    }
+
+    /// Closes Preferences.
+    pub fn close(&mut self, out: &mut PrefsOut) {
+        self.open = false;
+        self.sized_for = None;
+        self.cancel_capture(out);
+        out.changed = true;
+    }
+
+    /// Draws Preferences into `ui`: the child window's contents, or on Linux the root
+    /// window's (Preferences-only mode). Returns true when it should close.
+    pub fn draw(&mut self, ui: &mut Ui, s: &mut Settings, out: &mut PrefsOut) -> bool {
+        let mut close = false;
+        let size = self.tab.size();
+        let ctx = ui.ctx().clone();
+        // Keep the window in front for a moment: when it was opened from the menu-bar
+        // menu, macOS hands the focus back to the app that was in front when the menu
+        // closes, which can be a few frames later.
+        if self.focus_tries > 0 {
+            self.focus_tries -= 1;
+            let focused = ctx.input(|i| i.viewport().focused) == Some(true);
+            if !focused {
+                ctx.send_viewport_cmd(ViewportCommand::Focus);
+                // From the second frame on the window exists and can be put in front
+                // of other apps' windows too.
+                if self.focus_tries < FOCUS_FRAMES - 1 {
+                    crate::platform::raise_window("LightSnap | ");
+                }
+                if self.focus_tries == 0 {
+                    log::info!("preferences: could not take the focus");
+                }
+            }
+            // The frames must go on while the main window is covered by another app.
+            ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::RequestPaintWhileHidden);
+            ctx.request_repaint_after(std::time::Duration::from_millis(30));
+        }
+        if self.sized_for != Some(self.tab) {
+            self.sized_for = Some(self.tab);
+            self.content_h = 0.0;
+            ctx.send_viewport_cmd(ViewportCommand::Title(format!("LightSnap | {}", self.tab.name())));
+        }
+        if ctx.input(|i| i.viewport().close_requested()) {
+            close = true;
+        }
+        if self.capturing.is_none() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, Key::W)) {
+            close = true;
+        }
+        let full = ui.max_rect();
+        if ctx.embed_viewports() {
+            let h = if self.content_h > 0.0 { self.content_h } else { 420.0 };
+            let extra = h + self.embed_extra - full.height();
+            if (extra - self.embed_extra).abs() > 0.5 {
+                self.embed_extra = extra;
+                ctx.request_repaint();
+            }
+        }
+        ui.painter().rect_filled(full, 0.0, BG);
+
+        // Tab bar
+        let header = Rect::from_min_size(full.min, vec2(full.width(), HEADER_H));
+        ui.painter().rect_filled(header, 0.0, HEADER);
+        ui.painter().line_segment(
+            [header.left_bottom(), header.right_bottom()],
+            Stroke::new(1.0, Color32::from_gray(24)),
+        );
+        let tabs = [Tab::General, Tab::Advanced, Tab::Hotkeys, Tab::About];
+        let tw = 66.0;
+        let x0 = header.center().x - tw * tabs.len() as f32 / 2.0;
+        for (i, t) in tabs.iter().enumerate() {
+            let r = Rect::from_min_size(pos2(x0 + i as f32 * tw + 3.0, header.min.y + 6.0), vec2(tw - 6.0, 54.0));
+            let resp = ui.interact(r, egui::Id::new(("tab", i)), Sense::click());
+            let sel = *t == self.tab;
+            if sel {
+                ui.painter().rect_filled(r, 6.0, TAB_SEL);
+            }
+            let col = if sel { ACCENT } else if resp.hovered() { TEXT } else { DIM };
+            icons::draw(
+                ui.painter(),
+                Rect::from_center_size(pos2(r.center().x, r.min.y + 20.0), vec2(27.0, 27.0)),
+                t.icon(),
+                if sel { Color32::from_gray(200) } else { DIM },
+            );
+            ui.painter().text(
+                pos2(r.center().x, r.max.y - 9.0),
+                Align2::CENTER_CENTER,
+                t.name(),
+                FontId::proportional(12.0),
+                col,
+            );
+            if resp.clicked() && !sel {
+                self.tab = *t;
+                self.cancel_capture(out);
+            }
+        }
+
+        let body = Rect::from_min_max(pos2(full.min.x + 12.0, header.max.y + 12.0), full.max - vec2(12.0, 10.0));
+        let used = ui.scope_builder(egui::UiBuilder::new().max_rect(body).layout(Layout::top_down(Align::Min)), |ui| {
+            {
+                let st = ui.style_mut();
+                st.spacing.item_spacing = vec2(6.0, 5.0);
+                st.spacing.interact_size.y = 22.0;
+                st.spacing.button_padding = vec2(8.0, 2.0);
+                st.spacing.icon_width = 15.0;
+                st.spacing.icon_width_inner = 9.0;
+                for (ts, f) in st.text_styles.iter_mut() {
+                    f.size = match ts {
+                        egui::TextStyle::Small => 11.0,
+                        egui::TextStyle::Heading => 15.0,
+                        _ => FONT,
+                    };
+                }
+            }
+            match self.tab {
+                Tab::General => self.general(ui, s, out),
+                Tab::Advanced => self.advanced(ui, s, out),
+                Tab::Hotkeys => self.hotkeys(ui, s, out),
+                Tab::About => crate::about::draw(ui, &mut self.about_icon),
+            }
+            ui.min_rect().height()
+        });
+        // Fit the window height to the tab's contents.
+        let want = HEADER_H + 12.0 + used.inner + 16.0;
+        if (want - self.content_h).abs() > 1.0 {
+            self.content_h = want;
+            if ctx.embed_viewports() {
+                // Check pictures: the command would resize the main window.
+                ctx.request_repaint();
+            } else {
+                self.size_checks = 20;
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(size.x, want)));
+            }
+        }
+        // A new window may not exist yet when the size is sent (Wayland), and then the
+        // request is lost. So send it again until the window has the height. Wayland
+        // never reports the size, so there it is sent for the first 20 frames.
+        if self.size_checks > 0 && !ctx.embed_viewports() {
+            match ctx.input(|i| i.viewport().inner_rect) {
+                Some(r) if (r.height() - want).abs() <= 1.0 => self.size_checks = 0,
+                _ => {
+                    self.size_checks -= 1;
+                    ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(size.x, want)));
+                    ctx.request_repaint_after(std::time::Duration::from_millis(50));
+                }
+            }
+        }
+        close
     }
 
     fn cancel_capture(&mut self, out: &mut PrefsOut) {

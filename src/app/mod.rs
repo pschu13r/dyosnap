@@ -162,6 +162,12 @@ pub struct LightSnap {
     egui_ctx: egui::Context,
     shot: Option<Screenshot>,
     visible: bool,
+    /// Linux: the open main window was made only to show Preferences (see `prefs_only`).
+    #[cfg(target_os = "linux")]
+    root_prefs: bool,
+    /// Linux: that window was asked to close, so the real main window can take its place.
+    #[cfg(target_os = "linux")]
+    root_closing: bool,
     monitor: Vec2,
     native_ppp: f32,
     recent: Vec<PathBuf>,
@@ -227,6 +233,10 @@ impl LightSnap {
             egui_ctx: ctx.clone(),
             shot: screenshot.map(|path| Screenshot { path, frames: 0, sent: false }),
             visible: !background,
+            #[cfg(target_os = "linux")]
+            root_prefs: false,
+            #[cfg(target_os = "linux")]
+            root_closing: false,
             monitor: vec2(1440.0, 900.0),
             native_ppp: 2.0,
             recent: Vec::new(),
@@ -409,6 +419,100 @@ impl LightSnap {
         self.visible || self.select.is_some() || self.prefs.open
     }
 
+    /// Linux: the window is wanted only for Preferences (opened from the tray, no picture,
+    /// video or record area). Then the window itself shows Preferences, with no second one.
+    #[cfg(target_os = "linux")]
+    pub fn prefs_only(&self) -> bool {
+        self.prefs.open && !self.visible && self.select.is_none()
+    }
+
+    /// Linux: called right before the window is made. In Preferences-only mode it returns
+    /// the size and title the window gets.
+    #[cfg(target_os = "linux")]
+    pub fn window_opening(&mut self) -> Option<(Vec2, String)> {
+        self.root_prefs = self.prefs_only();
+        self.root_closing = false;
+        if self.root_prefs {
+            // There is no main window whose focus there is to wait for.
+            self.prefs.skip_wait();
+            Some((self.prefs.window_size(), self.prefs.window_title()))
+        } else {
+            None
+        }
+    }
+
+    /// Linux: the frame of a window that shows Preferences only. Returns true when the
+    /// frame is done (the caller draws nothing else).
+    #[cfg(target_os = "linux")]
+    fn prefs_only_frame(&mut self, ui: &mut Ui) -> bool {
+        if !self.root_prefs {
+            return false;
+        }
+        let ctx = ui.ctx().clone();
+        if !self.prefs_only() {
+            // Something needs the real main window (a picture, a video, the record area).
+            // Close this one; main.rs makes it again in the main size, and Preferences
+            // then goes on as its own window.
+            if !self.root_closing {
+                self.root_closing = true;
+                ctx.send_viewport_cmd(ViewportCommand::Close);
+            }
+            return true;
+        }
+        self.prefs.skip_wait();
+        self.prefs.can_configure_keys = self.hotkeys.as_ref().is_some_and(|h| h.can_configure());
+        let mut out = crate::prefs::PrefsOut::default();
+        let mut close = false;
+        egui::CentralPanel::no_frame().show(ui, |ui| {
+            close = self.prefs.draw(ui, &mut self.settings, &mut out);
+        });
+        if close {
+            // Close the window too (for Ctrl+W; a close request is closing it already).
+            self.prefs.close(&mut out);
+            ctx.send_viewport_cmd(ViewportCommand::Close);
+        }
+        self.handle_prefs_out(&ctx, out);
+        true
+    }
+
+    /// What the Preferences window asked for.
+    fn handle_prefs_out(&mut self, ctx: &egui::Context, out: crate::prefs::PrefsOut) {
+        if out.configure_keys {
+            if let Some(h) = &self.hotkeys {
+                h.configure();
+            }
+        }
+        if out.capture_started {
+            // Let the next key press reach the settings window instead of starting a capture.
+            self.unregister_hotkeys();
+        }
+        if out.changed {
+            self.settings.save();
+            self.tray_menu_dirty = true;
+        }
+        if out.save_dir_changed {
+            self.recent_dirty = true;
+        }
+        if test_env("LS_TEST_DIALOG") && self.prefs.open && !self.test_dialog_done {
+            self.test_dialog_done = true;
+            let d = rfd::AsyncFileDialog::new().set_directory(&self.settings.save_dir);
+            self.spawn_dialog(ctx, DialogKind::SaveDir, d.pick_folder());
+        }
+        if out.pick_save_dir {
+            let d = rfd::AsyncFileDialog::new().set_directory(&self.settings.save_dir);
+            self.spawn_dialog(ctx, DialogKind::SaveDir, d.pick_folder());
+        }
+        if out.pick_editor_app {
+            let d = rfd::AsyncFileDialog::new()
+                .set_directory(platform::EDITOR_DIR)
+                .add_filter("Application", &[platform::EDITOR_EXT]);
+            self.spawn_dialog(ctx, DialogKind::EditorApp, d.pick_file());
+        }
+        if (out.hotkeys_changed || out.capture_ended) && self.prefs.capturing.is_none() {
+            self.register_hotkeys();
+        }
+    }
+
     /// The size of the main window as a normal window: the last one it had, or the default.
     pub fn window_size(&self) -> Vec2 {
         self.settings.window_size.map(|[w, h]| vec2(w, h)).unwrap_or(vec2(980.0, 620.0))
@@ -582,7 +686,12 @@ impl eframe::App for LightSnap {
 
         // Closing the window keeps LightSnap in the menu bar. On Linux the window really
         // closes (Wayland can't hide it) and main.rs keeps the app running.
-        if ctx.input(|i| i.viewport().close_requested()) && self.tray.is_some() {
+        // (A window that shows only Preferences handles its close request itself.)
+        #[cfg(target_os = "linux")]
+        let prefs_root = self.root_prefs;
+        #[cfg(not(target_os = "linux"))]
+        let prefs_root = false;
+        if ctx.input(|i| i.viewport().close_requested()) && self.tray.is_some() && !prefs_root {
             #[cfg(not(target_os = "linux"))]
             ctx.send_viewport_cmd(ViewportCommand::CancelClose);
             if let Some(v) = &mut self.video {
@@ -626,6 +735,10 @@ impl eframe::App for LightSnap {
 
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        #[cfg(target_os = "linux")]
+        if self.prefs_only_frame(ui) {
+            return;
+        }
         if self.checker.is_none() {
             let a = Color32::from_gray(44);
             let b = Color32::from_gray(52);
@@ -793,40 +906,7 @@ impl eframe::App for LightSnap {
         // Settings, in a window of their own.
         self.prefs.can_configure_keys = self.hotkeys.as_ref().is_some_and(|h| h.can_configure());
         let out = self.prefs.show(&ctx, &mut self.settings);
-        if out.configure_keys {
-            if let Some(h) = &self.hotkeys {
-                h.configure();
-            }
-        }
-        if out.capture_started {
-            // Let the next key press reach the settings window instead of starting a capture.
-            self.unregister_hotkeys();
-        }
-        if out.changed {
-            self.settings.save();
-            self.tray_menu_dirty = true;
-        }
-        if out.save_dir_changed {
-            self.recent_dirty = true;
-        }
-        if test_env("LS_TEST_DIALOG") && self.prefs.open && !self.test_dialog_done {
-            self.test_dialog_done = true;
-            let d = rfd::AsyncFileDialog::new().set_directory(&self.settings.save_dir);
-            self.spawn_dialog(&ctx, DialogKind::SaveDir, d.pick_folder());
-        }
-        if out.pick_save_dir {
-            let d = rfd::AsyncFileDialog::new().set_directory(&self.settings.save_dir);
-            self.spawn_dialog(&ctx, DialogKind::SaveDir, d.pick_folder());
-        }
-        if out.pick_editor_app {
-            let d = rfd::AsyncFileDialog::new()
-                .set_directory(platform::EDITOR_DIR)
-                .add_filter("Application", &[platform::EDITOR_EXT]);
-            self.spawn_dialog(&ctx, DialogKind::EditorApp, d.pick_file());
-        }
-        if (out.hotkeys_changed || out.capture_ended) && self.prefs.capturing.is_none() {
-            self.register_hotkeys();
-        }
+        self.handle_prefs_out(&ctx, out);
 
         egui::Panel::top("top")
             .exact_size(40.0)
