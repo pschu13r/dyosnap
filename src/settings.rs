@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VideoFormat {
@@ -154,6 +154,25 @@ pub const HOTKEY_ACTIONS: [(&str, &str); 8] = [
     ("clipboard", "Open from Clipboard"),
 ];
 
+/// How many extra save folders there can be.
+pub const MAX_EXTRA_DIRS: usize = 9;
+
+/// The shortcut action id of extra folder `n` (1-based): "folder1" ... "folder9".
+pub fn folder_action(n: usize) -> String {
+    format!("folder{n}")
+}
+
+/// The 1-based number of an extra folder's action id; None for any other id.
+pub fn folder_number(id: &str) -> Option<usize> {
+    let n: usize = id.strip_prefix("folder")?.parse().ok()?;
+    (1..=MAX_EXTRA_DIRS).contains(&n).then_some(n)
+}
+
+/// A folder's short name: the last path component ("Work" for "/home/me/Work").
+pub fn dir_name(p: &Path) -> String {
+    p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.display().to_string())
+}
+
 pub const VIDEO_HOTKEY_ACTIONS: [(&str, &str); 2] = [("rec_pause", "Record/Pause"), ("rec_stop", "Stop")];
 
 /// The keys of a shortcut inside the app, for tooltips: "⇧⌘Z", on Linux "Ctrl+Shift+Z".
@@ -243,6 +262,9 @@ impl Quality {
 #[serde(default)]
 pub struct Settings {
     pub save_dir: PathBuf,
+    /// More folders to save an area into by shortcut (up to `MAX_EXTRA_DIRS`). The shortcut
+    /// of the folder at position N (1-based) is the key "folderN" in `keys`.
+    pub extra_dirs: Vec<PathBuf>,
     pub format: ImageFormat,
     pub after_capture: AfterCapture,
     pub delay_secs: u32,
@@ -291,6 +313,7 @@ impl Default for Settings {
             .unwrap_or_else(std::env::temp_dir);
         Self {
             save_dir: base.join("LightSnap"),
+            extra_dirs: Vec::new(),
             format: ImageFormat::Png,
             after_capture: AfterCapture::OpenEditor,
             delay_secs: 5,
@@ -415,15 +438,59 @@ impl Settings {
     /// A free path in the save folder for `stem.ext`.
     pub fn free_path(&self, stem: &str, ext: &str) -> PathBuf {
         let _ = std::fs::create_dir_all(&self.save_dir);
-        let stem = sanitize(stem);
-        let mut p = self.save_dir.join(format!("{stem}.{ext}"));
-        let mut n = 2;
-        while p.exists() {
-            p = self.save_dir.join(format!("{stem} ({n}).{ext}"));
-            n += 1;
-        }
-        p
+        free_path_in(&self.save_dir, stem, ext)
     }
+
+    /// What a shortcut does, in the desktop's own list of shortcuts (Linux).
+    pub fn action_description(&self, id: &str) -> String {
+        if let Some(d) = folder_number(id).and_then(|n| self.extra_dirs.get(n - 1)) {
+            return format!("Capture area to {}", dir_name(d));
+        }
+        HOTKEY_ACTIONS
+            .iter()
+            .chain(VIDEO_HOTKEY_ACTIONS.iter())
+            .find(|(i, _)| *i == id)
+            .map(|(_, d)| d.to_string())
+            .unwrap_or_else(|| id.to_string())
+    }
+
+    /// Adds an extra folder. Returns false (and changes nothing) when it is the save
+    /// folder, is listed already, or there are `MAX_EXTRA_DIRS`.
+    pub fn add_extra_dir(&mut self, dir: PathBuf) -> bool {
+        if self.extra_dirs.len() >= MAX_EXTRA_DIRS || dir == self.save_dir || self.extra_dirs.contains(&dir) {
+            return false;
+        }
+        self.extra_dirs.push(dir);
+        true
+    }
+
+    /// Removes the extra folder at `index` (0-based). Its shortcut goes with it, and the
+    /// shortcuts of the folders after it move down one place, so each key stays with its folder.
+    pub fn remove_extra_dir(&mut self, index: usize) {
+        if index >= self.extra_dirs.len() {
+            return;
+        }
+        let count = self.extra_dirs.len();
+        self.extra_dirs.remove(index);
+        self.keys.remove(&folder_action(index + 1));
+        for n in index + 2..=count {
+            if let Some(k) = self.keys.remove(&folder_action(n)) {
+                self.keys.insert(folder_action(n - 1), k);
+            }
+        }
+    }
+}
+
+/// A free path in `dir` for `stem.ext`: "stem.ext", then "stem (2).ext", and so on.
+pub fn free_path_in(dir: &Path, stem: &str, ext: &str) -> PathBuf {
+    let stem = sanitize(stem);
+    let mut p = dir.join(format!("{stem}.{ext}"));
+    let mut n = 2;
+    while p.exists() {
+        p = dir.join(format!("{stem} ({n}).{ext}"));
+        n += 1;
+    }
+    p
 }
 
 pub fn sanitize(s: &str) -> String {
@@ -433,4 +500,75 @@ pub fn sanitize(s: &str) -> String {
         .collect();
     let t = t.trim().to_string();
     if t.is_empty() { Settings::new_name() } else { t }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hk(code: &str) -> Option<Hotkey> {
+        Some(Hotkey::new(true, true, code))
+    }
+
+    #[test]
+    fn removing_a_folder_shifts_the_keys_after_it() {
+        let mut s = Settings::default();
+        for d in ["/a", "/b", "/c", "/d"] {
+            assert!(s.add_extra_dir(d.into()));
+        }
+        s.keys.insert("folder1".into(), hk("Digit1"));
+        s.keys.insert("folder3".into(), hk("Digit3"));
+        s.keys.insert("folder4".into(), None);
+        s.keys.insert("area".into(), hk("Digit9"));
+        s.remove_extra_dir(1); // "/b" goes; "/c" (key 3) becomes folder 2, "/d" folder 3
+        assert_eq!(s.extra_dirs, [PathBuf::from("/a"), "/c".into(), "/d".into()]);
+        assert_eq!(s.keys.get("folder1"), Some(&hk("Digit1")));
+        assert_eq!(s.keys.get("folder2"), Some(&hk("Digit3")));
+        assert_eq!(s.keys.get("folder3"), Some(&None));
+        assert!(!s.keys.contains_key("folder4"));
+        assert_eq!(s.keys.get("area"), Some(&hk("Digit9")));
+        // The key of the removed folder goes with it.
+        s.remove_extra_dir(0);
+        assert_eq!(s.keys.get("folder1"), Some(&hk("Digit3")));
+        s.remove_extra_dir(7); // out of range: nothing happens
+        assert_eq!(s.extra_dirs.len(), 2);
+    }
+
+    #[test]
+    fn adds_only_new_folders_up_to_nine() {
+        let mut s = Settings { save_dir: "/save".into(), ..Settings::default() };
+        assert!(!s.add_extra_dir("/save".into()));
+        assert!(s.add_extra_dir("/a".into()));
+        assert!(!s.add_extra_dir("/a".into()));
+        for i in 2..=MAX_EXTRA_DIRS {
+            assert!(s.add_extra_dir(format!("/f{i}").into()));
+        }
+        assert_eq!(s.extra_dirs.len(), MAX_EXTRA_DIRS);
+        assert!(!s.add_extra_dir("/one-too-many".into()));
+    }
+
+    #[test]
+    fn folder_ids_and_names() {
+        assert_eq!(folder_action(3), "folder3");
+        assert_eq!(folder_number("folder3"), Some(3));
+        assert_eq!(folder_number("folder9"), Some(9));
+        assert_eq!(folder_number("folder0"), None);
+        assert_eq!(folder_number("folder10"), None);
+        assert_eq!(folder_number("folder"), None);
+        assert_eq!(folder_number("area"), None);
+        assert_eq!(dir_name(Path::new("/home/me/Work")), "Work");
+        assert_eq!(dir_name(Path::new("/home/me/Work/")), "Work");
+        assert_eq!(dir_name(Path::new("/")), "/");
+        let mut s = Settings::default();
+        s.add_extra_dir("/x/Clients".into());
+        assert_eq!(s.action_description("folder1"), "Capture area to Clients");
+        assert_eq!(s.action_description("area"), "Capture area");
+    }
+
+    #[test]
+    fn old_settings_load_without_extra_dirs() {
+        let s: Settings = serde_json::from_str(r#"{"sound": true}"#).unwrap();
+        assert!(s.extra_dirs.is_empty());
+        assert!(s.sound);
+    }
 }

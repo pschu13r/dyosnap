@@ -173,6 +173,16 @@ impl LightSnap {
         platform::set_clipboard(image, tiff, path)
     }
 
+    /// Writes the captured picture `src` (a PNG) to `dest` in the chosen image format.
+    pub(super) fn save_capture(&self, src: &Path, dest: &Path) -> bool {
+        match self.settings.format {
+            crate::settings::ImageFormat::Png => std::fs::copy(src, dest).is_ok(),
+            crate::settings::ImageFormat::Jpg => image::open(src)
+                .map(|i| save_image(&i.to_rgba8(), dest, self.settings.jpeg_quality).is_ok())
+                .unwrap_or(false),
+        }
+    }
+
     pub(super) fn save_picture(&mut self, save_as: bool) -> Option<PathBuf> {
         self.save_picture_ex(save_as, true)
     }

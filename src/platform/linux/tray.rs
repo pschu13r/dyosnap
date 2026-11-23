@@ -253,13 +253,13 @@ impl Tray {
 pub struct Hotkeys {
     tx: Sender<Cmd>,
     muted: Arc<AtomicBool>,
-    last: Vec<(String, Option<Hotkey>)>,
+    last: Vec<(String, String, Option<Hotkey>)>,
     live: Arc<Mutex<Option<HashMap<String, String>>>>,
     version: Arc<std::sync::atomic::AtomicU32>,
 }
 
 enum Cmd {
-    Bind(Vec<(String, Option<Hotkey>)>),
+    Bind(Vec<(String, String, Option<Hotkey>)>),
     Configure,
 }
 
@@ -294,11 +294,11 @@ impl Hotkeys {
         let _ = self.tx.send(Cmd::Configure);
     }
 
-    /// Replaces all shortcuts. Each pair is (action id, key). Actions without a key are still
+    /// Replaces all shortcuts. Each item is (action id, description, key). Actions without a key are still
     /// announced, so the desktop lists them and the person can assign one. An empty list only mutes
     /// them (while a new key is being chosen in the settings): binding again would make
     /// the desktop ask again.
-    pub fn set(&mut self, keys: &[(String, Option<Hotkey>)]) {
+    pub fn set(&mut self, keys: &[(String, String, Option<Hotkey>)]) {
         if keys.is_empty() {
             self.muted.store(true, Ordering::SeqCst);
             return;
@@ -424,8 +424,8 @@ async fn run(rx: std::sync::mpsc::Receiver<Cmd>, shared: Shared) {
         let Ok(s) = portal.create_session(Default::default()).await else { continue };
         let shortcuts: Vec<NewShortcut> = keys
             .iter()
-            .map(|(id, k)| {
-                let s = NewShortcut::new(id.as_str(), description(id));
+            .map(|(id, description, k)| {
+                let s = NewShortcut::new(id.as_str(), description.as_str());
                 match k {
                     Some(k) => s.preferred_trigger(Some(trigger(k).as_str())),
                     None => s,
@@ -438,15 +438,6 @@ async fn run(rx: std::sync::mpsc::Receiver<Cmd>, shared: Shared) {
         }
         session = Some(s);
     }
-}
-
-fn description(id: &str) -> String {
-    crate::settings::HOTKEY_ACTIONS
-        .iter()
-        .chain(crate::settings::VIDEO_HOTKEY_ACTIONS.iter())
-        .find(|(i, _)| *i == id)
-        .map(|(_, d)| d.to_string())
-        .unwrap_or_else(|| id.to_string())
 }
 
 /// The key in the XDG shortcut format: "CTRL+ALT+5".

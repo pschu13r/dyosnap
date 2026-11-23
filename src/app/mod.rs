@@ -73,6 +73,8 @@ const PALETTE: [Color32; 10] = [
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     Capture(CaptureKind),
+    /// Capture an area into extra folder N (1-based): no editor, saved and copied.
+    CaptureTo(usize),
     Record,
     Show,
     OpenImage,
@@ -101,6 +103,7 @@ pub enum DialogKind {
     OpenImage,
     SaveAs,
     SaveDir,
+    ExtraDir,
     EditorApp,
 }
 
@@ -112,6 +115,8 @@ struct Job {
     /// Linux: the picture is for choosing a screenshot area in LightSnap (see `start_capture`).
     select_shot: bool,
     show_after: bool,
+    /// An extra folder to save the picture into (see `Action::CaptureTo`).
+    target: Option<PathBuf>,
     /// Linux "Capture Window": the windows, listed before the picture was taken.
     windows: Arc<Mutex<Vec<Rect>>>,
 }
@@ -530,6 +535,10 @@ impl LightSnap {
             let d = rfd::AsyncFileDialog::new().set_directory(&self.settings.save_dir);
             self.spawn_dialog(ctx, DialogKind::SaveDir, d.pick_folder());
         }
+        if out.pick_extra_dir {
+            let d = rfd::AsyncFileDialog::new().set_directory(&self.settings.save_dir);
+            self.spawn_dialog(ctx, DialogKind::ExtraDir, d.pick_folder());
+        }
         if out.pick_editor_app {
             let d = rfd::AsyncFileDialog::new()
                 .set_directory(platform::EDITOR_DIR)
@@ -831,6 +840,7 @@ impl eframe::App for LightSnap {
                 let sel = self.select.take();
                 platform::end_screen_session();
                 let show_after = sel.as_ref().and_then(|s| s.shot).unwrap_or(false);
+                let target = sel.as_ref().and_then(|s| s.target.clone());
                 // A full-screen capture is not an area to repeat with "Capture Previous Area".
                 let chosen = !sel.as_ref().is_some_and(|s| matches!(s.instant, Some((_, None))));
                 let path = sel.as_ref().and_then(|s| capture::crop_screens(&s.screens, r));
@@ -845,7 +855,7 @@ impl eframe::App for LightSnap {
                         if chosen {
                             self.last_area = Some(r);
                         }
-                        self.handle_capture(&ctx, p, show_after);
+                        self.handle_capture(&ctx, p, show_after, target);
                     }
                     None => {
                         self.show_window(&ctx);

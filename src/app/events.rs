@@ -3,6 +3,9 @@
 use super::*;
 
 pub(super) fn action_from_id(id: &str, delay: u32) -> Option<Action> {
+    if let Some(n) = crate::settings::folder_number(id) {
+        return Some(Action::CaptureTo(n));
+    }
     Some(match id {
         "area" => Action::Capture(CaptureKind::Area),
         "previous" => Action::Capture(CaptureKind::Previous),
@@ -94,13 +97,18 @@ impl LightSnap {
     /// (Re)registers the global shortcuts from the settings.
     pub(super) fn register_hotkeys(&mut self) {
         // Linux announces every action, so the desktop can list those without a key too.
-        let keys: Vec<(String, Option<crate::settings::Hotkey>)> = if self.settings.hotkeys {
+        let st = &self.settings;
+        let keys: Vec<(String, String, Option<crate::settings::Hotkey>)> = if st.hotkeys {
+            let folders = (1..=st.extra_dirs.len().min(crate::settings::MAX_EXTRA_DIRS)).map(crate::settings::folder_action);
             crate::settings::HOTKEY_ACTIONS
                 .iter()
                 .chain(crate::settings::VIDEO_HOTKEY_ACTIONS.iter())
-                .filter(|(id, _)| action_from_id(id, self.settings.delay_secs).is_some())
-                .map(|(id, _)| (id.to_string(), self.settings.hotkey(id)))
-                .filter(|(_, k)| cfg!(target_os = "linux") || k.is_some())
+                .map(|(id, _)| id.to_string())
+                .chain(folders)
+                .filter(|id| action_from_id(id, st.delay_secs).is_some())
+                .map(|id| (st.action_description(&id), st.hotkey(&id), id))
+                .filter(|(_, k, _)| cfg!(target_os = "linux") || k.is_some())
+                .map(|(d, k, id)| (id, d, k))
                 .collect()
         } else {
             Vec::new()
@@ -140,6 +148,11 @@ impl LightSnap {
     pub(super) fn run_action(&mut self, ctx: &egui::Context, a: Action) {
         match a {
             Action::Capture(kind) => self.start_capture(ctx, kind, false),
+            Action::CaptureTo(n) => {
+                if let Some(dir) = self.settings.extra_dirs.get(n.wrapping_sub(1)).cloned() {
+                    self.start_capture_to(ctx, CaptureKind::Area, Some(dir));
+                }
+            }
             Action::Record => {
                 if self.recording.is_none() {
                     self.start_capture(ctx, CaptureKind::FullScreen, true)
@@ -291,6 +304,15 @@ impl LightSnap {
                         self.recent_dirty = true;
                         self.tray_menu_dirty = true;
                     }
+                    DialogKind::ExtraDir => {
+                        if self.settings.add_extra_dir(p) {
+                            self.settings.save();
+                            // A new shortcut id: the desktop binds the list again (Linux).
+                            if self.prefs.capturing.is_none() {
+                                self.register_hotkeys();
+                            }
+                        }
+                    }
                     DialogKind::EditorApp => {
                         self.settings.external_editor = p.display().to_string();
                         self.settings.save();
@@ -335,11 +357,12 @@ impl LightSnap {
         if let Some(job) = &self.job {
             if let Ok(res) = job.rx.try_recv() {
                 let (kind, for_record, show_after) = (job.kind, job.for_record, job.show_after);
+                let job_target = job.target.clone();
                 let select_shot = job.select_shot;
                 let job_windows = job.windows.lock().map(|w| w.clone()).unwrap_or_default();
                 self.job = None;
                 match (res.first().cloned(), for_record || select_shot) {
-                    (Some(p), false) => self.handle_capture(ctx, p, show_after),
+                    (Some(p), false) => self.handle_capture(ctx, p, show_after, job_target),
                     (Some(_), true) if select_shot => {
                         let screens = self.sel_screens(&res);
                         let previous = if kind == CaptureKind::Previous { self.last_area } else { None };
@@ -363,6 +386,7 @@ impl LightSnap {
                                 resent: 0,
                                 countdown: None,
                                 shot: Some(show_after),
+                                target: job_target,
                                 placed: false,
                                 shown: 0,
                                 instant,
@@ -394,6 +418,7 @@ impl LightSnap {
                                 resent: 0,
                                 countdown: None,
                                 shot: None,
+                                target: None,
                                 placed: false,
                                 shown: 0,
                                 instant: None,
@@ -514,5 +539,22 @@ impl LightSnap {
             };
             self.run_action(ctx, action);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn folder_ids_start_a_capture_into_that_folder() {
+        assert_eq!(action_from_id("folder3", 5), Some(Action::CaptureTo(3)));
+        assert_eq!(action_from_id("folder1", 5), Some(Action::CaptureTo(1)));
+        assert_eq!(action_from_id("folder9", 5), Some(Action::CaptureTo(9)));
+        assert_eq!(action_from_id("folder0", 5), None);
+        assert_eq!(action_from_id("folder10", 5), None);
+        // The tray's "folder" item still opens the save folder.
+        assert_eq!(action_from_id("folder", 5), Some(Action::OpenFolder));
+        assert_eq!(action_from_id("area", 5), Some(Action::Capture(CaptureKind::Area)));
     }
 }

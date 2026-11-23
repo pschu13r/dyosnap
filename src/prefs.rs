@@ -3,7 +3,8 @@
 
 use crate::icons::{self, Icon};
 use crate::settings::{
-    AfterCapture, ClipFormat, HOTKEY_ACTIONS, Hotkey, ImageFormat, Settings, VIDEO_HOTKEY_ACTIONS, VideoFormat,
+    AfterCapture, ClipFormat, HOTKEY_ACTIONS, Hotkey, ImageFormat, MAX_EXTRA_DIRS, Settings, VIDEO_HOTKEY_ACTIONS,
+    VideoFormat, dir_name, folder_action, folder_number,
 };
 use egui::{
     Align, Align2, Color32, FontId, Key, Layout, Rect, Sense, Stroke, Ui, Vec2, ViewportBuilder, ViewportCommand,
@@ -26,6 +27,9 @@ const ROW_H: f32 = 24.0;
 const CTRL_W: f32 = 236.0;
 const HEADER_H: f32 = 66.0;
 const FONT: f32 = 13.0;
+/// The tab body scrolls when it is taller than this, so the window stays at most about
+/// 700 px high and fits a 1366×768 screen.
+const MAX_BODY_H: f32 = 600.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tab {
@@ -98,6 +102,8 @@ pub struct PrefsOut {
     pub save_dir_changed: bool,
     /// Ask the app to show a folder picker for the save folder.
     pub pick_save_dir: bool,
+    /// Ask the app to show a folder picker for a new extra folder.
+    pub pick_extra_dir: bool,
     /// Ask the app to show an app picker for the external editor.
     pub pick_editor_app: bool,
     /// Ask the desktop to show its page for changing the shortcuts (Linux).
@@ -322,7 +328,17 @@ impl Prefs {
             }
             match self.tab {
                 Tab::General => self.general(ui, s, out),
-                Tab::Screenshots => self.screenshots(ui, s, out),
+                Tab::Screenshots => {
+                    // Taller than the screen allows once there are folders: scroll. The bar is
+                    // always shown, so it is clear that there is more.
+                    ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
+                    let mut area = egui::ScrollArea::vertical().max_height(MAX_BODY_H).auto_shrink([false, true]);
+                    // Check pictures: LS_PREFS_SCROLL=<points> scrolls the body down.
+                    if let (true, Some(off)) = (cfg!(debug_assertions), std::env::var("LS_PREFS_SCROLL").ok()) {
+                        area = area.vertical_scroll_offset(off.parse().unwrap_or(0.0));
+                    }
+                    area.show(ui, |ui| self.screenshots(ui, s, out));
+                }
                 Tab::Video => self.video(ui, s, out),
                 Tab::About => crate::about::draw(ui, &mut self.about_icon),
             }
@@ -492,6 +508,7 @@ impl Prefs {
                 });
             });
         });
+        self.extra_dirs(ui, s, out);
         row(ui, "", |ui| {
             out.changed |= ui.checkbox(&mut s.autosave, "Autosave screenshots").changed();
         });
@@ -533,7 +550,45 @@ impl Prefs {
             });
         });
         separator(ui);
-        self.shortcuts(ui, s, &screenshot_actions(), out);
+        let actions = screenshot_actions(s);
+        self.shortcuts(ui, s, &actions, out);
+    }
+
+    /// The extra save folders under the "Save folder" row, and the button to add one.
+    fn extra_dirs(&mut self, ui: &mut Ui, s: &mut Settings, out: &mut PrefsOut) {
+        let mut remove = None;
+        for (i, dir) in s.extra_dirs.iter().enumerate() {
+            row(ui, "", |ui| {
+                ui.allocate_ui_with_layout(vec2(CTRL_W, ROW_H), Layout::right_to_left(Align::Center), |ui| {
+                    ui.set_width(CTRL_W);
+                    if x_button(ui, "Remove this folder") {
+                        remove = Some(i);
+                    }
+                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                        let (r, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+                        icons::draw(ui.painter(), r, Icon::Folder, Color32::from_rgb(110, 170, 240));
+                        ui.add(egui::Label::new(egui::RichText::new(short_path(dir)).color(TEXT)).truncate())
+                            .on_hover_text(dir.display().to_string());
+                    });
+                });
+            });
+        }
+        if let Some(i) = remove {
+            // The keys of the folders after it move down: a key being recorded would land
+            // on the wrong folder.
+            if self.capturing.as_deref().is_some_and(|id| folder_number(id).is_some()) {
+                self.cancel_capture(out);
+            }
+            s.remove_extra_dir(i);
+            out.changed = true;
+            out.hotkeys_changed = true;
+        }
+        row(ui, "", |ui| {
+            if ui.add_enabled(s.extra_dirs.len() < MAX_EXTRA_DIRS, egui::Button::new("Add folder")).clicked() {
+                out.pick_extra_dir = true;
+            }
+            ui.label(egui::RichText::new("Optional, up to 9").color(DIM));
+        });
     }
 
     // ------------------------------------------------------------ Video
@@ -570,7 +625,7 @@ impl Prefs {
         if let Some(live) = s.live_keys.clone() {
             for (id, label) in actions {
                 let label = if id == "timed" { format!("Fullscreen after {}s:", s.delay_secs) } else { format!("{label}:") };
-                row_w(ui, &label, KEY_LABEL_W, 10.0, |ui| {
+                row_full(ui, &label, folder_path(s, id).as_deref(), KEY_LABEL_W, 10.0, |ui| {
                     let text = live.get(id).filter(|t| !t.is_empty()).cloned().unwrap_or_else(|| "Not set".into());
                     let (r, _) = ui.allocate_exact_size(vec2(CTRL_W - 40.0, 27.0), Sense::hover());
                     ui.painter().rect_filled(r, 3.0, KEY_BTN);
@@ -592,7 +647,8 @@ impl Prefs {
         self.record_key(ui, s, out);
         for (id, label) in actions {
             let label = if id == "timed" { format!("Fullscreen after {}s:", s.delay_secs) } else { format!("{label}:") };
-            self.key_row(ui, s, id, &label, out);
+            let hover = folder_path(s, id);
+            self.key_row(ui, s, id, &label, hover.as_deref(), out);
         }
         ui.add_space(4.0);
         ui.label(egui::RichText::new("Click a field, then press the new shortcut. Esc cancels.").color(DIM));
@@ -617,7 +673,7 @@ impl Prefs {
                     let ctrl = m.ctrl && cfg!(target_os = "macos");
                     let hk = Hotkey { cmd: m.mac_cmd || m.command, alt: m.alt, ctrl, shift: m.shift, code };
                     // One shortcut, one action: across the actions of every tab.
-                    let others: Vec<String> = screenshot_actions()
+                    let others: Vec<String> = screenshot_actions(s)
                         .into_iter()
                         .chain(video_actions())
                         .map(|(i, _)| i)
@@ -636,8 +692,8 @@ impl Prefs {
         ui.ctx().request_repaint();
     }
 
-    fn key_row(&mut self, ui: &mut Ui, s: &mut Settings, id: &str, label: &str, out: &mut PrefsOut) {
-        row_w(ui, label, KEY_LABEL_W, 10.0, |ui| {
+    fn key_row(&mut self, ui: &mut Ui, s: &mut Settings, id: &str, label: &str, hover: Option<&str>, out: &mut PrefsOut) {
+        row_full(ui, label, hover, KEY_LABEL_W, 10.0, |ui| {
             let capturing = self.capturing.as_deref() == Some(id);
             let text = if capturing {
                 "Press keys…".to_string()
@@ -667,13 +723,7 @@ impl Prefs {
                 }
             }
             ui.add_space(14.0);
-            let (xr, xresp) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
-            let col = if xresp.hovered() { TEXT } else { DIM };
-            let c = xr.center();
-            let d = 5.0;
-            ui.painter().line_segment([c + vec2(-d, -d), c + vec2(d, d)], Stroke::new(2.0, col));
-            ui.painter().line_segment([c + vec2(-d, d), c + vec2(d, -d)], Stroke::new(2.0, col));
-            if xresp.on_hover_text("Clear this shortcut").clicked() {
+            if x_button(ui, "Clear this shortcut") {
                 s.keys.insert(id.to_string(), None);
                 out.changed = true;
                 out.hotkeys_changed = true;
@@ -685,9 +735,32 @@ impl Prefs {
     }
 }
 
-/// The actions of the Screenshots tab's shortcuts, as (id, label).
-fn screenshot_actions() -> Vec<(String, String)> {
-    HOTKEY_ACTIONS.iter().filter(|(id, _)| *id != "record").map(|(i, l)| (i.to_string(), l.to_string())).collect()
+/// The actions of the Screenshots tab's shortcuts, as (id, label): the fixed ones, then
+/// one "Capture area to <folder>" for each extra folder.
+fn screenshot_actions(s: &Settings) -> Vec<(String, String)> {
+    let folders = s.extra_dirs.iter().take(MAX_EXTRA_DIRS).enumerate().map(|(i, d)| (folder_action(i + 1), format!("Capture area to {}", dir_name(d))));
+    HOTKEY_ACTIONS
+        .iter()
+        .filter(|(id, _)| *id != "record")
+        .map(|(i, l)| (i.to_string(), l.to_string()))
+        .chain(folders)
+        .collect()
+}
+
+/// The full path of the extra folder behind a shortcut id, for the row's hover text.
+fn folder_path(s: &Settings, id: &str) -> Option<String> {
+    folder_number(id).and_then(|n| s.extra_dirs.get(n - 1)).map(|d| d.display().to_string())
+}
+
+/// A small × button. Returns true when clicked.
+fn x_button(ui: &mut Ui, tip: &str) -> bool {
+    let (r, resp) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
+    let col = if resp.hovered() { TEXT } else { DIM };
+    let c = r.center();
+    let d = 5.0;
+    ui.painter().line_segment([c + vec2(-d, -d), c + vec2(d, d)], Stroke::new(2.0, col));
+    ui.painter().line_segment([c + vec2(-d, d), c + vec2(d, -d)], Stroke::new(2.0, col));
+    resp.on_hover_text(tip).clicked()
 }
 
 /// The actions of the Video tab's shortcuts, as (id, label).
@@ -706,11 +779,19 @@ fn row(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui)) {
 }
 
 fn row_w(ui: &mut Ui, label: &str, label_w: f32, gap: f32, add: impl FnOnce(&mut Ui)) {
+    row_full(ui, label, None, label_w, gap, add);
+}
+
+/// A row whose label is cut short when it is too wide. `hover` shows on the label then.
+fn row_full(ui: &mut Ui, label: &str, hover: Option<&str>, label_w: f32, gap: f32, add: impl FnOnce(&mut Ui)) {
     ui.horizontal(|ui| {
         ui.allocate_ui_with_layout(vec2(label_w, ROW_H), Layout::right_to_left(Align::Center), |ui| {
             ui.set_min_size(vec2(label_w, ROW_H));
             if !label.is_empty() {
-                ui.label(egui::RichText::new(label).color(TEXT));
+                let resp = ui.add(egui::Label::new(egui::RichText::new(label).color(TEXT)).truncate());
+                if let Some(h) = hover {
+                    resp.on_hover_text(h);
+                }
             }
         });
         ui.add_space(gap);

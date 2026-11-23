@@ -36,6 +36,8 @@ it useful too.
 
 - **Fewer clicks:** every capture goes to the clipboard right away, and every edit
   updates it. No extra copy step after you annotate.
+- **Extra folders:** add up to 9 more save folders in Preferences and give each its own
+  shortcut. Press it, pick an area, and the picture lands in that folder.
 - **2 in 1:** take and annotate screenshots, and record your screen, in one tool.
 - **Small videos:** you choose the frame rate and quality. QuickTime and other built-in
   recorders make huge files that take ages to send. LightSnap keeps them small.

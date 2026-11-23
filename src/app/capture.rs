@@ -47,6 +47,8 @@ pub(super) struct Select {
     /// window was open before (it opens again afterwards). As with `screencapture -i` on
     /// macOS, the picture is taken when the mouse is let go: no button, no Enter.
     pub(super) shot: Option<bool>,
+    /// The extra folder a screenshot goes into (Linux; see `Action::CaptureTo`).
+    pub(super) target: Option<PathBuf>,
     /// Linux: the screen the full-screen window opened on was found (see `place_selection`).
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub(super) placed: bool,
@@ -172,6 +174,15 @@ pub(super) fn countdown_overlay(ui: &mut Ui, painter: &egui::Painter, full: Rect
 
 impl LightSnap {
     pub(super) fn start_capture(&mut self, ctx: &egui::Context, kind: CaptureKind, for_record: bool) {
+        self.start_capture_ex(ctx, kind, for_record, None);
+    }
+
+    /// A screenshot that goes into an extra folder (see `handle_capture`).
+    pub(super) fn start_capture_to(&mut self, ctx: &egui::Context, kind: CaptureKind, target: Option<PathBuf>) {
+        self.start_capture_ex(ctx, kind, false, target);
+    }
+
+    fn start_capture_ex(&mut self, ctx: &egui::Context, kind: CaptureKind, for_record: bool, target: Option<PathBuf>) {
         if self.busy() {
             return;
         }
@@ -238,10 +249,12 @@ impl LightSnap {
             let _ = tx.send(r);
             ctx2.request_repaint();
         });
-        self.job = Some(Job { rx, kind, for_record, select_shot, show_after: was_visible, windows });
+        self.job = Some(Job { rx, kind, for_record, select_shot, show_after: was_visible, target, windows });
     }
 
-    pub(super) fn handle_capture(&mut self, ctx: &egui::Context, path: PathBuf, show_after: bool) {
+    /// A new picture. `target`: an extra folder to save it into (and copy it), whatever
+    /// "After screenshot" says: no editor opens.
+    pub(super) fn handle_capture(&mut self, ctx: &egui::Context, path: PathBuf, show_after: bool, target: Option<PathBuf>) {
         let name = self.settings.make_name("Screenshot");
         // The scale of the screen the picture came from, not of the screen the window was
         // last on: a snap from a normal screen shows at its real size, one from Retina too.
@@ -267,22 +280,44 @@ impl LightSnap {
         }
         // "Autosave screenshots" (and the save-and-copy mode) put the capture in the folder right away.
         let mut saved = None;
-        if self.settings.autosave || self.settings.after_capture == AfterCapture::SaveAndCopy {
+        let mut save_error = None;
+        if let Some(dir) = &target {
+            // The folder may be gone since it was added: make it again.
+            match std::fs::create_dir_all(dir) {
+                Ok(()) => {
+                    let dest = crate::settings::free_path_in(dir, &name, self.settings.format.ext());
+                    match self.save_capture(&path, &dest) {
+                        true => saved = Some(dest),
+                        false => save_error = Some(format!("Could not save to {}", crate::settings::dir_name(dir))),
+                    }
+                }
+                Err(e) => save_error = Some(format!("Could not create {}: {e}", dir.display())),
+            }
+        } else if self.settings.autosave || self.settings.after_capture == AfterCapture::SaveAndCopy {
             let dest = self.settings.free_path(&name, self.settings.format.ext());
-            let ok = match self.settings.format {
-                ImageFormat::Png => std::fs::copy(&path, &dest).is_ok(),
-                ImageFormat::Jpg => image::open(&path)
-                    .map(|i| save_image(&i.to_rgba8(), &dest, self.settings.jpeg_quality).is_ok())
-                    .unwrap_or(false),
-            };
-            if ok {
+            if self.save_capture(&path, &dest) {
                 saved = Some(dest);
                 self.recent_dirty = true;
                 self.tray_menu_dirty = true;
             }
         }
-        // Every capture goes straight to the clipboard, ready to paste.
+        // Every capture goes straight to the clipboard, ready to paste. Also when saving
+        // into an extra folder failed: then the picture is not lost.
         self.copy_file_to_clipboard(&path, saved.as_deref());
+        if let Some(dir) = target {
+            match (saved, save_error) {
+                (Some(dest), _) => {
+                    platform::notify("Saved", &dest.display().to_string());
+                    self.toast(format!("Saved to {}", crate::settings::dir_name(&dir)), Some(dest));
+                }
+                (None, e) => self.toast(e.unwrap_or_default(), None),
+            }
+            if show_after {
+                self.show_window(ctx);
+            }
+            let _ = std::fs::remove_file(&path);
+            return;
+        }
         match self.settings.after_capture {
             AfterCapture::OpenEditor => {
                 match image::open(&path) {
