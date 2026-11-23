@@ -161,7 +161,9 @@ impl Prefs {
         let mut builder = ViewportBuilder::default()
             .with_app_id(crate::platform::APP_ID)
             .with_title(format!("LightSnap | {}", self.tab.name()))
-            .with_inner_size(vec2(size.x, 420.0))
+            // The tab's last fitted height, or its usual one: the window then rarely has to
+            // grow after it opens.
+            .with_inner_size(vec2(size.x, if self.content_h > 0.0 { self.content_h } else { size.y }))
             .with_resizable(false)
             .with_minimize_button(false)
             .with_maximize_button(false);
@@ -326,6 +328,9 @@ impl Prefs {
                     };
                 }
             }
+            // The scroll area can only be as tall as the window is now, so its own height says
+            // nothing about how tall the tab wants to be. Its contents do: fit to them at once.
+            let mut scroll_h = None;
             match self.tab {
                 Tab::General => self.general(ui, s, out),
                 Tab::Screenshots => {
@@ -346,11 +351,12 @@ impl Prefs {
                     if shown.state.offset().y + view.height() < shown.content_size.y - 1.0 {
                         fade_edge(ui.painter(), view, false);
                     }
+                    scroll_h = Some(shown.content_size.y.min(MAX_BODY_H));
                 }
                 Tab::Video => self.video(ui, s, out),
                 Tab::About => crate::about::draw(ui, &mut self.about_icon),
             }
-            ui.min_rect().height()
+            scroll_h.unwrap_or_else(|| ui.min_rect().height())
         });
         // Fit the window height to the tab's contents.
         let want = HEADER_H + 12.0 + used.inner + 16.0;
