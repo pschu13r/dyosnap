@@ -6,6 +6,6 @@ Exec=dyosnap %f
 Icon=io.github.pschu13r.DyoSnap
 Categories=Utility;Graphics;
 Keywords=screenshot;screen;recording;capture;
-MimeType=image/png;image/jpeg;video/mp4;
+MimeType=image/png;image/jpeg;video/mp4;video/quicktime;
 StartupWMClass=io.github.pschu13r.DyoSnap
 Terminal=false

@@ -106,6 +106,109 @@ fn notify_from_app(title: &str, body: &str) -> bool {
     true
 }
 
+/// Files the Finder asked DyoSnap to open ("Open With", a drop on the app icon), and
+/// where they go. Until the menu-bar icon is set up they wait here.
+struct Opened {
+    waiting: Vec<PathBuf>,
+    sink: Option<crate::platform::Sink>,
+}
+
+static OPENED: std::sync::Mutex<Opened> = std::sync::Mutex::new(Opened { waiting: Vec::new(), sink: None });
+
+/// From now on, files opened from the Finder go to `sink` like a file chosen under
+/// "Recent files"; the ones that came before go there now.
+pub fn send_opened_files_to(sink: crate::platform::Sink) {
+    let waiting = {
+        let Ok(mut o) = OPENED.lock() else { return };
+        o.sink = Some(sink.clone());
+        std::mem::take(&mut o.waiting)
+    };
+    for p in waiting {
+        sink(format!("recent:{}", p.display()));
+    }
+}
+
+fn file_opened(path: PathBuf) {
+    log::info!(target: "dyosnap", "opened from the Finder: {}", path.display());
+    let sink = {
+        let Ok(mut o) = OPENED.lock() else { return };
+        match o.sink.clone() {
+            Some(s) => s,
+            None => {
+                o.waiting.push(path);
+                return;
+            }
+        }
+    };
+    sink(format!("recent:{}", path.display()));
+}
+
+// Apple Event codes: kCoreEventClass, kAEOpenDocuments, keyDirectObject.
+const CORE_EVENT_CLASS: u32 = u32::from_be_bytes(*b"aevt");
+const OPEN_DOCUMENTS: u32 = u32::from_be_bytes(*b"odoc");
+const DIRECT_OBJECT: u32 = u32::from_be_bytes(*b"----");
+
+define_class!(
+    // The Finder opens a file by sending an "open documents" Apple Event. winit leaves it
+    // to AppKit, which hands it to NSDocumentController; that knows no document types
+    // and answers "DyoSnap cannot open files in the … format". This takes the event over.
+    #[unsafe(super(NSObject))]
+    #[name = "DyoSnapOpenHandler"]
+    struct OpenHandler;
+
+    impl OpenHandler {
+        /// AppKit puts its own handlers in place before this; the files the app was
+        /// started with arrive right after it.
+        #[unsafe(method(willFinishLaunching:))]
+        fn will_finish_launching(&self, _note: &AnyObject) {
+            let Some(cls) = AnyClass::get(c"NSAppleEventManager") else { return };
+            let manager: Retained<AnyObject> = unsafe { msg_send![cls, sharedAppleEventManager] };
+            let _: () = unsafe {
+                msg_send![&*manager,
+                    setEventHandler: self,
+                    andSelector: objc2::sel!(openDocuments:withReplyEvent:),
+                    forEventClass: CORE_EVENT_CLASS,
+                    andEventID: OPEN_DOCUMENTS]
+            };
+        }
+
+        #[unsafe(method(openDocuments:withReplyEvent:))]
+        fn open_documents(&self, event: &AnyObject, _reply: &AnyObject) {
+            let Some(list): Option<Retained<AnyObject>> =
+                (unsafe { msg_send![event, paramDescriptorForKeyword: DIRECT_OBJECT] })
+            else {
+                return;
+            };
+            // DyoSnap shows one file at a time: the first one is opened.
+            let count: isize = unsafe { msg_send![&*list, numberOfItems] };
+            let item: Option<Retained<AnyObject>> =
+                if count > 0 { unsafe { msg_send![&*list, descriptorAtIndex: 1isize] } } else { Some(list) };
+            let Some(item) = item else { return };
+            let Some(url): Option<Retained<AnyObject>> = (unsafe { msg_send![&*item, fileURLValue] }) else { return };
+            let Some(path): Option<Retained<NSString>> = (unsafe { msg_send![&*url, path] }) else { return };
+            file_opened(PathBuf::from(path.to_string()));
+        }
+    }
+);
+
+/// Takes over the Finder's "open documents" event (see `OpenHandler`).
+fn listen_for_opened_files() {
+    let Some(cls) = AnyClass::get(c"NSNotificationCenter") else { return };
+    let handler: Retained<OpenHandler> = unsafe { msg_send![OpenHandler::class(), new] };
+    let center: Retained<AnyObject> = unsafe { msg_send![cls, defaultCenter] };
+    let name = NSString::from_str("NSApplicationWillFinishLaunchingNotification");
+    let none: Option<&AnyObject> = None;
+    let _: () = unsafe {
+        msg_send![&*center,
+            addObserver: &*handler,
+            selector: objc2::sel!(willFinishLaunching:),
+            name: &*name,
+            object: none]
+    };
+    // Neither the center nor the event manager keeps the handler alive.
+    std::mem::forget(handler);
+}
+
 // Words for the interface.
 pub const THIS_COMPUTER: &str = "this Mac";
 pub const FILE_MANAGER: &str = "Finder";
@@ -130,6 +233,7 @@ pub fn editor_label(app: &str) -> String {
 /// belongs to the old bundle id (delete LightSnap.app, its Login Items entry goes with it),
 /// so "Launch at login" has to be switched on again once.
 pub fn prepare() {
+    listen_for_opened_files();
     let Some(agents) = dirs::home_dir().map(|h| h.join("Library/LaunchAgents")) else {
         return;
     };

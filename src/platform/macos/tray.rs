@@ -9,6 +9,7 @@ pub struct Tray(tray_icon::TrayIcon);
 
 impl Tray {
     pub fn new(menu: Vec<MenuEntry>, sink: Sink) -> Option<Self> {
+        crate::platform::send_opened_files_to(sink.clone());
         tray_icon::menu::MenuEvent::set_event_handler(Some(move |e: tray_icon::menu::MenuEvent| sink(e.id.0.clone())));
         let mut b = tray_icon::TrayIconBuilder::new()
             .with_menu(Box::new(build(&menu)))
