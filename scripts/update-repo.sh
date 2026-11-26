@@ -42,7 +42,10 @@ for arch in amd64 arm64; do
     apt-ftparchive --arch "$arch" packages pool > "$dir/Packages"
     gzip -9kn "$dir/Packages"
 done
+# By-hash: new index files get new URLs, so apt never mixes a fresh Release with an index
+# that GitHub Pages still has cached (up to 10 minutes).
 apt-ftparchive \
+    -o APT::FTPArchive::DoByHash=true \
     -o APT::FTPArchive::Release::Origin=DyoSnap \
     -o APT::FTPArchive::Release::Label=DyoSnap \
     -o APT::FTPArchive::Release::Suite=stable \
