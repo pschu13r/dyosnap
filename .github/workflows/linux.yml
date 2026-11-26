@@ -1,6 +1,7 @@
 # Builds the Linux packages (.tar.gz, .deb and .rpm for x86_64 and arm64). Runs by hand and for every version
 # tag; for a tag it also attaches the packages to that release, if it exists, and then
-# rebuilds the signed apt and dnf repositories on GitHub Pages (branch gh-pages).
+# rebuilds the signed apt and dnf repositories at https://dyosnap.github.io (repo
+# dyosnap/dyosnap.github.io, pushed with the deploy key in secret PAGES_DEPLOY_KEY).
 #
 # The build runs third-party code (crate build scripts, cargo-about), so it only gets a
 # read-only token, and the token is not left in .git/config. Only the small release and
@@ -108,18 +109,21 @@ jobs:
           fi
 
   # Rebuilds the apt and dnf repositories from the last 3 releases and force-pushes them as
-  # one commit to gh-pages. The checkout only provides scripts/update-repo.sh.
+  # one commit to dyosnap/dyosnap.github.io (GitHub Pages). It writes there only, with a
+  # deploy key; this repository stays read-only. The checkout only provides
+  # scripts/update-repo.sh.
   repo:
     needs: release
     if: ${{ !cancelled() && (needs.release.result == 'success' || inputs.repo_only) }}
     runs-on: ubuntu-24.04
     permissions:
-      contents: write
+      contents: read
     concurrency: repo
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       REPO_GPG_PRIVATE_KEY: ${{ secrets.REPO_GPG_PRIVATE_KEY }}
+      PAGES_DEPLOY_KEY: ${{ secrets.PAGES_DEPLOY_KEY }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -132,8 +136,8 @@ jobs:
 
       - name: Import the signing key
         run: |
-          if [ -z "$REPO_GPG_PRIVATE_KEY" ]; then
-            echo "::warning::REPO_GPG_PRIVATE_KEY is not set; the repositories are not built."
+          if [ -z "$REPO_GPG_PRIVATE_KEY" ] || [ -z "$PAGES_DEPLOY_KEY" ]; then
+            echo "::warning::REPO_GPG_PRIVATE_KEY or PAGES_DEPLOY_KEY is not set; the repositories are not built."
             echo "SKIP=1" >> "$GITHUB_ENV"
             exit 0
           fi
@@ -158,13 +162,21 @@ jobs:
         if: env.SKIP != '1'
         run: ./scripts/update-repo.sh pkgs site
 
-      - name: Push to gh-pages
+      - name: Push to dyosnap/dyosnap.github.io
         if: env.SKIP != '1'
         run: |
+          key="$RUNNER_TEMP/deploy_key"
+          known="$RUNNER_TEMP/known_hosts"
+          printf '%s\n' "$PAGES_DEPLOY_KEY" > "$key"
+          chmod 600 "$key"
+          # github.com's published host key (api.github.com/meta), so the push goes nowhere else.
+          echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" > "$known"
           cd site
-          git init -q -b gh-pages
+          git init -q -b main
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -q -m "Update the package repositories"
-          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
+          GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o UserKnownHostsFile=$known" \
+            git push --force git@github.com:dyosnap/dyosnap.github.io.git main
+          rm -f "$key"

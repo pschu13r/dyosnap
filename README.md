@@ -143,12 +143,12 @@ To add the repository without downloading the package first:
 
 ```bash
 # Ubuntu, Debian
-sudo curl -fsSL https://pschu13r.github.io/dyosnap/dyosnap-archive-keyring.asc -o /usr/share/keyrings/dyosnap-archive-keyring.asc
-sudo curl -fsSL https://pschu13r.github.io/dyosnap/dyosnap.sources -o /etc/apt/sources.list.d/dyosnap.sources
+sudo curl -fsSL https://dyosnap.github.io/dyosnap-archive-keyring.asc -o /usr/share/keyrings/dyosnap-archive-keyring.asc
+sudo curl -fsSL https://dyosnap.github.io/dyosnap.sources -o /etc/apt/sources.list.d/dyosnap.sources
 sudo apt update && sudo apt install dyosnap
 
 # Fedora
-sudo dnf config-manager addrepo --from-repofile=https://pschu13r.github.io/dyosnap/dyosnap.repo
+sudo dnf config-manager addrepo --from-repofile=https://dyosnap.github.io/dyosnap.repo
 sudo dnf install dyosnap
 ```
 

@@ -1,6 +1,6 @@
 # DyoSnap apt repository (added by the dyosnap package). Delete this file to stop updates.
 Types: deb
-URIs: https://pschu13r.github.io/dyosnap/apt
+URIs: https://dyosnap.github.io/apt
 Suites: stable
 Components: main
 Signed-By: /usr/share/keyrings/dyosnap-archive-keyring.asc

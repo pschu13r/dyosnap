@@ -1,7 +1,7 @@
 # DyoSnap dnf repository (added by the dyosnap package). Delete this file to stop updates.
 [dyosnap]
 name=DyoSnap
-baseurl=https://pschu13r.github.io/dyosnap/rpm
+baseurl=https://dyosnap.github.io/rpm
 enabled=1
 gpgcheck=1
 repo_gpgcheck=1

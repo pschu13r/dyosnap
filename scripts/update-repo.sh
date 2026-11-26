@@ -15,7 +15,7 @@ set -euo pipefail
 SRC=$(cd "$1" && pwd)
 OUT=$2
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-URL="https://pschu13r.github.io/dyosnap"
+URL="https://dyosnap.github.io"
 
 for tool in apt-ftparchive rpmsign createrepo_c gpg gzip; do
     command -v "$tool" > /dev/null || { echo "$tool is missing"; exit 1; }
