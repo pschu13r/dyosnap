@@ -51,6 +51,13 @@ fn main() -> eframe::Result<()> {
         // Absolute, so ffmpeg never reads a name like "x:y.mov" as a protocol.
         .map(|p| std::fs::canonicalize(&p).unwrap_or(p));
 
+    // Linux: a second start hands over to the running DyoSnap and exits. Check runs
+    // (`--screenshot`, `--no-focus`) are not counted. macOS keeps one instance itself.
+    #[cfg(target_os = "linux")]
+    if !quiet && platform::single_instance(open.as_deref(), args.iter().any(|a| a == "--background")) {
+        return Ok(());
+    }
+
     // Start quietly in the menu bar; only the very first start shows the window.
     if screenshot.is_none() && !no_focus && open.is_none() {
         let mut st = settings::Settings::load();

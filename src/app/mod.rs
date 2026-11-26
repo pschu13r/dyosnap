@@ -294,6 +294,9 @@ impl DyoSnap {
                     ctx.request_repaint();
                 })
             };
+            // Later starts of DyoSnap reach this one like a menu click.
+            #[cfg(target_os = "linux")]
+            platform::serve_instance(sink.clone());
             app.tray = platform::Tray::new(build_menu(false, &app.settings), sink);
             // No tray host (GNOME without the AppIndicator extension): the app would be
             // out of reach when it starts hidden, so keep the window and hint there.
@@ -421,7 +424,10 @@ impl DyoSnap {
             return;
         }
         let mut later = false;
-        egui::Modal::new(Id::new("perm_prompt")).show(ctx, |ui| {
+        // At the top, so it stays off the home card's no-tray hint further down.
+        let id = Id::new("perm_prompt");
+        let area = egui::Modal::default_area(id).anchor(Align2::CENTER_TOP, vec2(0.0, 12.0));
+        egui::Modal::new(id).area(area).show(ctx, |ui| {
             ui.set_width(380.0);
             ui.label(egui::RichText::new("Allow screenshots").size(16.0).strong().color(TEXT));
             ui.add_space(6.0);

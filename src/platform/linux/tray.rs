@@ -205,6 +205,13 @@ pub fn take_activation_token() -> Option<String> {
     (at.elapsed() < std::time::Duration::from_secs(10)).then_some(t)
 }
 
+/// Keeps a token from another start of DyoSnap (see `instance.rs`) for the next window.
+pub fn remember_activation_token(token: String) {
+    if let Ok(mut slot) = ACTIVATION.lock() {
+        *slot = Some((token, std::time::Instant::now()));
+    }
+}
+
 pub struct Tray(Handle<Sni>);
 
 impl Tray {
