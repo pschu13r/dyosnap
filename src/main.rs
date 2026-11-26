@@ -18,6 +18,11 @@ mod video;
 use std::path::PathBuf;
 
 fn main() -> eframe::Result<()> {
+    // First of all: nothing else may run (folders, logs, a second instance).
+    if std::env::args().any(|a| a == "--version" || a == "-V") {
+        println!("DyoSnap {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     // First: it moves LightSnap's folders, which the logs and settings below would
     // otherwise create anew.
     platform::migrate_old_folders();
@@ -118,7 +123,7 @@ fn run_linux(
         Rc::new(RefCell::new(app::DyoSnap::new(&ctx, screenshot, open, quiet, background)));
     let mut first = true;
     loop {
-        if !(first && background) {
+        if !(first && background && !state.borrow().no_tray()) {
             let mut options = make_options();
             options.run_and_return = true;
             options.viewport = options.viewport.with_visible(true).with_inner_size(state.borrow().open_size());

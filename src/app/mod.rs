@@ -168,6 +168,9 @@ pub struct DyoSnap {
     toast: Option<Toast>,
     prefs: crate::prefs::Prefs,
     background: bool,
+    /// Linux: the desktop has no tray host, so the main window stays and shows a hint.
+    #[cfg(target_os = "linux")]
+    no_tray: bool,
     test_prefs_done: bool,
     /// Last editor version put on the clipboard, and when the next copy is due.
     clip_version: u64,
@@ -244,6 +247,8 @@ impl DyoSnap {
             toast: None,
             prefs: Default::default(),
             background,
+            #[cfg(target_os = "linux")]
+            no_tray: false,
             test_prefs_done: false,
             clip_version: 0,
             clip_due: None,
@@ -290,6 +295,13 @@ impl DyoSnap {
                 })
             };
             app.tray = platform::Tray::new(build_menu(false, &app.settings), sink);
+            // No tray host (GNOME without the AppIndicator extension): the app would be
+            // out of reach when it starts hidden, so keep the window and hint there.
+            #[cfg(target_os = "linux")]
+            if app.tray.is_none() {
+                app.no_tray = true;
+                app.visible = true;
+            }
             if app.settings.hotkeys {
                 app.setup_hotkeys(&ctx, tx);
             }
@@ -453,6 +465,12 @@ impl DyoSnap {
             self.settings.save();
         }
         self.visible = false;
+    }
+
+    /// Linux: there is no tray host (see `no_tray`).
+    #[cfg(target_os = "linux")]
+    pub fn no_tray(&self) -> bool {
+        self.no_tray
     }
 
     /// Linux: whether the window has to be open (it is shown, or the record area is being chosen).
@@ -765,7 +783,12 @@ impl eframe::App for DyoSnap {
         let prefs_root = self.root_prefs;
         #[cfg(not(target_os = "linux"))]
         let prefs_root = false;
-        if ctx.input(|i| i.viewport().close_requested()) && self.tray.is_some() && !prefs_root {
+        // Without a tray host the window is put away too: the shortcuts still work.
+        #[cfg(target_os = "linux")]
+        let can_hide = self.tray.is_some() || self.no_tray;
+        #[cfg(not(target_os = "linux"))]
+        let can_hide = self.tray.is_some();
+        if ctx.input(|i| i.viewport().close_requested()) && can_hide && !prefs_root {
             #[cfg(not(target_os = "linux"))]
             ctx.send_viewport_cmd(ViewportCommand::CancelClose);
             if let Some(v) = &mut self.video {
@@ -1051,7 +1074,11 @@ impl eframe::App for DyoSnap {
         self.editor_shortcuts(&ctx);
         if self.close_after_save {
             self.close_after_save = false;
-            if self.tray.is_some() {
+            #[cfg(target_os = "linux")]
+            let can_hide = self.tray.is_some() || self.no_tray;
+            #[cfg(not(target_os = "linux"))]
+            let can_hide = self.tray.is_some();
+            if can_hide {
                 self.hide_window(&ctx);
             }
         }

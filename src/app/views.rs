@@ -507,7 +507,12 @@ impl DyoSnap {
             self.recent = recent_files(&self.settings.save_dir, 3);
         }
         let card_w = 560.0f32.min(rect.width() - 40.0);
-        let card = Rect::from_center_size(rect.center(), vec2(card_w, (rect.height() - 40.0).min(430.0)));
+        #[cfg(target_os = "linux")]
+        let hint = self.no_tray;
+        #[cfg(not(target_os = "linux"))]
+        let hint = false;
+        let card_h = if hint { 500.0 } else { 430.0 };
+        let card = Rect::from_center_size(rect.center(), vec2(card_w, (rect.height() - 40.0).min(card_h)));
         ui.scope_builder(egui::UiBuilder::new().max_rect(card), |ui| {
             Frame::new()
                 .fill(Color32::from_rgba_unmultiplied(30, 30, 32, 235))
@@ -551,6 +556,18 @@ impl DyoSnap {
                         ui.end_row();
                     });
                     ui.add_space(14.0);
+                    if hint {
+                        ui.label(
+                            egui::RichText::new(
+                                "No tray icon: your desktop shows none. On GNOME, install the extension \
+                                 \"AppIndicator and KStatusNotifierItem Support\", then restart DyoSnap. \
+                                 Your shortcuts work without it.",
+                            )
+                            .small()
+                            .color(DIM_TEXT),
+                        );
+                        ui.add_space(10.0);
+                    }
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new("Recent").color(DIM_TEXT).strong());
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {

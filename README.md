@@ -152,7 +152,9 @@ DyoSnap also needs:
 - **xdg-desktop-portal** with a backend for your desktop, and **PipeWire**. Most Wayland
   desktops have both. Global shortcuts need GNOME 48+ or KDE Plasma 6.
 - **On GNOME:** the AppIndicator extension for the tray icon (Ubuntu has it; on Fedora install
-  "AppIndicator and KStatusNotifierItem Support").
+  "AppIndicator and KStatusNotifierItem Support"). Without a tray icon DyoSnap shows its
+  window with a hint on every start.
+- **Version:** `dyosnap --version` (or `-V`) prints the installed version.
 
 ### First start
 
