@@ -34,12 +34,16 @@
 
   <screenshots>
     <screenshot type="default">
-      <image type="source" width="1920" height="1080">https://github.com/user-attachments/assets/b1a18dcf-77cf-403a-b507-ac0898b826a7</image>
-      <caption>Capture and annotate a screenshot on KDE Plasma</caption>
+      <image type="source" width="1200" height="750">https://raw.githubusercontent.com/pschu13r/dyosnap/main/docs/screenshots/editor.png</image>
+      <caption>Annotate a screenshot in the editor</caption>
     </screenshot>
     <screenshot>
-      <image type="source" width="960" height="540">https://github.com/user-attachments/assets/9e076ff1-1bf9-4a9f-8576-4f3757c85357</image>
-      <caption>Record the screen</caption>
+      <image type="source" width="1200" height="750">https://raw.githubusercontent.com/pschu13r/dyosnap/main/docs/screenshots/home.png</image>
+      <caption>Capture an area, a window or the whole screen, or record a video</caption>
+    </screenshot>
+    <screenshot>
+      <image type="source" width="426" height="692">https://raw.githubusercontent.com/pschu13r/dyosnap/main/docs/screenshots/preferences.png</image>
+      <caption>Preferences</caption>
     </screenshot>
   </screenshots>
 
