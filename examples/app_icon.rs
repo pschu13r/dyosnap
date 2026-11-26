@@ -20,6 +20,7 @@ fn rounded_rect(r: Rect, radius: f32) -> Option<tiny_skia::Path> {
 }
 
 /// The icon on a 1024 grid, scaled to `size` pixels.
+// The Linux SVG `linux/io.github.pschu13r.DyoSnap.svg` draws the same shapes and must be kept in sync.
 fn draw(size: u32) -> Pixmap {
     let mut pm = Pixmap::new(size, size).expect("size");
     let t = Transform::from_scale(size as f32 / 1024.0, size as f32 / 1024.0);

@@ -64,6 +64,8 @@ opt-level = 3
 
 # Linux packages, built by scripts/bundle-linux.sh after the tarball (it writes the
 # notices in dist/linux). The program finds ffmpeg on the system, so both depend on it.
+# Both also install the DyoSnap apt/dnf repository and its signing key, so updates come
+# with the system updates. linux/dyosnap-archive-keyring.asc is the repository's public key.
 
 [package.metadata.deb]
 section = "graphics"
@@ -76,7 +78,11 @@ assets = [
     ["target/release/dyosnap", "usr/bin/", "755"],
     ["linux/io.github.pschu13r.DyoSnap.desktop", "usr/share/applications/", "644"],
     ["linux/io.github.pschu13r.DyoSnap.png", "usr/share/icons/hicolor/256x256/apps/", "644"],
+    ["linux/io.github.pschu13r.DyoSnap.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
     ["linux/io.github.pschu13r.DyoSnap.metainfo.xml", "usr/share/metainfo/", "644"],
+    # The DyoSnap apt repository, so updates come with apt upgrade (see scripts/update-repo.sh).
+    ["linux/dyosnap.sources", "etc/apt/sources.list.d/", "644"],
+    ["linux/dyosnap-archive-keyring.asc", "usr/share/keyrings/", "644"],
     ["dist/linux/THIRD_PARTY_NOTICES.txt", "usr/share/doc/dyosnap/", "644"],
 ]
 
@@ -86,7 +92,11 @@ assets = [
     { source = "target/release/dyosnap", dest = "/usr/bin/dyosnap", mode = "755" },
     { source = "linux/io.github.pschu13r.DyoSnap.desktop", dest = "/usr/share/applications/io.github.pschu13r.DyoSnap.desktop", mode = "644" },
     { source = "linux/io.github.pschu13r.DyoSnap.png", dest = "/usr/share/icons/hicolor/256x256/apps/io.github.pschu13r.DyoSnap.png", mode = "644" },
+    { source = "linux/io.github.pschu13r.DyoSnap.svg", dest = "/usr/share/icons/hicolor/scalable/apps/io.github.pschu13r.DyoSnap.svg", mode = "644" },
     { source = "linux/io.github.pschu13r.DyoSnap.metainfo.xml", dest = "/usr/share/metainfo/io.github.pschu13r.DyoSnap.metainfo.xml", mode = "644" },
+    # The DyoSnap dnf repository, so updates come with dnf upgrade (see scripts/update-repo.sh).
+    { source = "linux/dyosnap.repo", dest = "/etc/yum.repos.d/dyosnap.repo", mode = "644", config = "noreplace" },
+    { source = "linux/dyosnap-archive-keyring.asc", dest = "/etc/pki/rpm-gpg/RPM-GPG-KEY-dyosnap", mode = "644" },
     { source = "LICENSE", dest = "/usr/share/licenses/dyosnap/LICENSE", mode = "644", doc = true },
     { source = "dist/linux/THIRD_PARTY_NOTICES.txt", dest = "/usr/share/doc/dyosnap/THIRD_PARTY_NOTICES.txt", mode = "644", doc = true },
 ]

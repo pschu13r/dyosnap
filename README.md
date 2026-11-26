@@ -134,6 +134,24 @@ Download the package for your system from
   start `dyosnap`. On first start it adds itself to your app list
   (`~/.local/share/applications`).
 
+Installing the .deb or .rpm also adds the DyoSnap repository (signed with its own key), so
+updates arrive with your normal system updates (`apt upgrade`, `dnf upgrade`). To opt out,
+delete `/etc/apt/sources.list.d/dyosnap.sources` (Ubuntu, Debian) or
+`/etc/yum.repos.d/dyosnap.repo` (Fedora).
+
+To add the repository without downloading the package first:
+
+```bash
+# Ubuntu, Debian
+sudo curl -fsSL https://pschu13r.github.io/dyosnap/dyosnap-archive-keyring.asc -o /usr/share/keyrings/dyosnap-archive-keyring.asc
+sudo curl -fsSL https://pschu13r.github.io/dyosnap/dyosnap.sources -o /etc/apt/sources.list.d/dyosnap.sources
+sudo apt update && sudo apt install dyosnap
+
+# Fedora
+sudo dnf config-manager addrepo --from-repofile=https://pschu13r.github.io/dyosnap/dyosnap.repo
+sudo dnf install dyosnap
+```
+
 Switching from the tarball to the .deb or .rpm: start `dyosnap` once from a terminal. It
 removes the tarball's app list entry, which would otherwise keep starting the old version.
 Then delete the unpacked tarball folder.

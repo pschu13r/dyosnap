@@ -1,13 +1,23 @@
 # Builds the Linux packages (.tar.gz, .deb and .rpm for x86_64 and arm64). Runs by hand and for every version
-# tag; for a tag it also attaches the packages to that release, if it exists.
+# tag; for a tag it also attaches the packages to that release, if it exists, and then
+# rebuilds the signed apt and dnf repositories on GitHub Pages (branch gh-pages).
 #
 # The build runs third-party code (crate build scripts, cargo-about), so it only gets a
-# read-only token, and the token is not left in .git/config. Only the small release job,
-# which runs no project code, may write. Actions are pinned to a commit.
+# read-only token, and the token is not left in .git/config. Only the small release and
+# repo jobs, which run no project code, may write or see the signing key
+# (secret REPO_GPG_PRIVATE_KEY). Actions are pinned to a commit.
+#
+# "Run workflow" with repo_only skips the build and only rebuilds the repositories from the
+# last 3 releases (to seed them, or to rebuild them at any time).
 name: Linux
 
 on:
   workflow_dispatch:
+    inputs:
+      repo_only:
+        description: Only rebuild the apt/dnf repositories (no build)
+        type: boolean
+        default: false
   push:
     tags: ["v*"]
 
@@ -15,6 +25,7 @@ permissions: {}
 
 jobs:
   build:
+    if: ${{ !inputs.repo_only }}
     permissions:
       contents: read
     strategy:
@@ -60,12 +71,30 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+    env:
+      REPO_GPG_PRIVATE_KEY: ${{ secrets.REPO_GPG_PRIVATE_KEY }}
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: dyosnap-linux-*
           path: dist
           merge-multiple: true
+
+      # Sign the .rpm files, so the release assets are signed too. Without the key (forks)
+      # they stay unsigned.
+      - name: Sign the .rpm packages
+        run: |
+          if [ -z "$REPO_GPG_PRIVATE_KEY" ]; then
+            echo "::warning::REPO_GPG_PRIVATE_KEY is not set; the .rpm packages stay unsigned."
+            exit 0
+          fi
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends rpm gnupg
+          printf '%s\n' "$REPO_GPG_PRIVATE_KEY" | gpg --batch --import
+          KEY=$(gpg --list-secret-keys --with-colons | awk -F: '$1 == "fpr" { print $10; exit }')
+          for rpm in dist/*.rpm; do
+            rpmsign --addsign --define "_gpg_name $KEY" "$rpm"
+          done
 
       - name: Attach to the release
         env:
@@ -77,3 +106,65 @@ jobs:
           else
             echo "No release $GITHUB_REF_NAME yet; the packages are in the run's artifacts."
           fi
+
+  # Rebuilds the apt and dnf repositories from the last 3 releases and force-pushes them as
+  # one commit to gh-pages. The checkout only provides scripts/update-repo.sh.
+  repo:
+    needs: release
+    if: ${{ !cancelled() && (needs.release.result == 'success' || inputs.repo_only) }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency: repo
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      REPO_GPG_PRIVATE_KEY: ${{ secrets.REPO_GPG_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends apt-utils rpm createrepo-c gnupg
+
+      - name: Import the signing key
+        run: |
+          if [ -z "$REPO_GPG_PRIVATE_KEY" ]; then
+            echo "::warning::REPO_GPG_PRIVATE_KEY is not set; the repositories are not built."
+            echo "SKIP=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          printf '%s\n' "$REPO_GPG_PRIVATE_KEY" | gpg --batch --import
+
+      - name: Download the packages of the last 3 releases
+        if: env.SKIP != '1'
+        run: |
+          mkdir pkgs
+          count=0
+          for tag in $(gh release list --exclude-drafts --exclude-pre-releases --limit 30 \
+                         --json tagName --jq '.[].tagName'); do
+            [ "$count" -lt 3 ] || break
+            if gh release download "$tag" --dir pkgs --pattern '*.deb' --pattern '*.rpm'; then
+              count=$((count + 1))
+            fi
+          done
+          echo "Downloaded packages of $count releases."
+          [ "$count" -gt 0 ]
+
+      - name: Build the repositories
+        if: env.SKIP != '1'
+        run: ./scripts/update-repo.sh pkgs site
+
+      - name: Push to gh-pages
+        if: env.SKIP != '1'
+        run: |
+          cd site
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Update the package repositories"
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages

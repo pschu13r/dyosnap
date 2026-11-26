@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Same shapes as examples/app_icon.rs. Keep both in sync. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="body" gradientUnits="userSpaceOnUse" x1="512" y1="100" x2="512" y2="924">
+      <stop offset="0" stop-color="#406EE6"/>
+      <stop offset="1" stop-color="#1E3A96"/>
+    </linearGradient>
+  </defs>
+  <!-- Plain blue first, for viewers that draw no gradients. -->
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="#2F54BE"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#body)"/>
+  <rect x="232" y="352" width="560" height="380" rx="56" ry="56" fill="#FFFFFF"/>
+  <rect x="396" y="292" width="232" height="100" rx="28" ry="28" fill="#FFFFFF"/>
+  <circle cx="512" cy="542" r="132" fill="#2A4CB4"/>
+  <circle cx="512" cy="542" r="76" fill="#FFFFFF"/>
+</svg>

@@ -1,9 +1,10 @@
 #!/bin/bash
 # Builds the Linux packages on Linux:
-#   dist/DyoSnap-<version>-linux-<arch>.tar.gz: the program, its .desktop file, icon and
-#     AppStream metainfo, LICENSE and the license notices of the Rust crates in it
+#   dist/DyoSnap-<version>-linux-<arch>.tar.gz: the program, its .desktop file, icons (PNG
+#     and SVG) and AppStream metainfo, LICENSE and the license notices of the Rust crates in it
 #   dist/dyosnap_<version>-1_<arch>.deb and dist/dyosnap-<version>-1.<arch>.rpm: the same
-#     files, installed to /usr (see [package.metadata.deb] and [...generate-rpm] in Cargo.toml)
+#     files, installed to /usr, plus the DyoSnap apt/dnf repository setup in /etc (see
+#     [package.metadata.deb] and [...generate-rpm] in Cargo.toml)
 #
 # Needs Rust, cargo-about (cargo install --locked --features cli cargo-about), cargo-deb,
 # cargo-generate-rpm (cargo install --locked cargo-deb cargo-generate-rpm), dpkg-dev and the
@@ -71,6 +72,7 @@ cat "$RUST"
 echo "==> Packing $NAME"
 install -m 755 "$BIN" "$STAGE/dyosnap"
 cp LICENSE linux/io.github.pschu13r.DyoSnap.desktop linux/io.github.pschu13r.DyoSnap.png \
+    linux/io.github.pschu13r.DyoSnap.svg \
     linux/io.github.pschu13r.DyoSnap.metainfo.xml "$STAGE/"
 tar -czf "dist/$NAME.tar.gz" -C dist/linux "$NAME"
 echo "==> Wrote dist/$NAME.tar.gz"
