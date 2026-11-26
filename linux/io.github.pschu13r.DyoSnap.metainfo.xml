@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.pschu13r.DyoSnap</id>
+  <launchable type="desktop-id">io.github.pschu13r.DyoSnap.desktop</launchable>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>DyoSnap</name>
+  <summary>Screenshots and screen recordings, saved locally</summary>
+  <developer id="io.github.pschu13r">
+    <name>Philipp Schuler</name>
+  </developer>
+
+  <description>
+    <p>
+      A light screenshot and screen-recording app for Wayland desktops (GNOME, KDE Plasma).
+      Every capture is saved on your computer and copied to the clipboard, so you can paste it right away.
+    </p>
+    <p>
+      Annotate screenshots in the built-in editor. Every change updates the clipboard.
+      Videos stay crisp and small. No account, no cloud upload.
+    </p>
+    <ul>
+      <li>Capture an area, a window or the whole screen</li>
+      <li>Record the screen as a video</li>
+      <li>Edit and annotate in the built-in editor</li>
+      <li>Everything is saved locally and copied to the clipboard</li>
+    </ul>
+  </description>
+
+  <url type="homepage">https://github.com/pschu13r/dyosnap</url>
+  <url type="bugtracker">https://github.com/pschu13r/dyosnap/issues</url>
+
+  <screenshots>
+    <screenshot type="default">
+      <image type="source" width="1920" height="1080">https://github.com/user-attachments/assets/b1a18dcf-77cf-403a-b507-ac0898b826a7</image>
+      <caption>Capture and annotate a screenshot on KDE Plasma</caption>
+    </screenshot>
+    <screenshot>
+      <image type="source" width="960" height="540">https://github.com/user-attachments/assets/9e076ff1-1bf9-4a9f-8576-4f3757c85357</image>
+      <caption>Record the screen</caption>
+    </screenshot>
+  </screenshots>
+
+  <provides>
+    <binary>dyosnap</binary>
+  </provides>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="1.2.0" date="2026-11-23">
+      <description>
+        <p>Linux: .deb and .rpm packages, recording with OpenH264 when ffmpeg has no x264, and a new signing certificate on macOS.</p>
+      </description>
+    </release>
+    <release version="1.1.0" date="2026-11-23">
+      <description>
+        <p>Renamed from LightSnap to DyoSnap. Extra save folders with their own shortcuts and a tabbed Preferences window.</p>
+      </description>
+    </release>
+    <release version="1.0.0" date="2026-11-20">
+      <description>
+        <p>Many Linux improvements: area selection, a red frame around the record area, a recording control bar and a tray icon.</p>
+      </description>
+    </release>
+  </releases>
+</component>

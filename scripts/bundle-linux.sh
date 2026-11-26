@@ -1,7 +1,7 @@
 #!/bin/bash
 # Builds the Linux packages on Linux:
-#   dist/DyoSnap-<version>-linux-<arch>.tar.gz: the program, its .desktop file and icon,
-#     LICENSE and the license notices of the Rust crates in it
+#   dist/DyoSnap-<version>-linux-<arch>.tar.gz: the program, its .desktop file, icon and
+#     AppStream metainfo, LICENSE and the license notices of the Rust crates in it
 #   dist/dyosnap_<version>-1_<arch>.deb and dist/dyosnap-<version>-1.<arch>.rpm: the same
 #     files, installed to /usr (see [package.metadata.deb] and [...generate-rpm] in Cargo.toml)
 #
@@ -70,7 +70,8 @@ cat "$RUST"
 
 echo "==> Packing $NAME"
 install -m 755 "$BIN" "$STAGE/dyosnap"
-cp LICENSE linux/io.github.pschu13r.DyoSnap.desktop linux/io.github.pschu13r.DyoSnap.png "$STAGE/"
+cp LICENSE linux/io.github.pschu13r.DyoSnap.desktop linux/io.github.pschu13r.DyoSnap.png \
+    linux/io.github.pschu13r.DyoSnap.metainfo.xml "$STAGE/"
 tar -czf "dist/$NAME.tar.gz" -C dist/linux "$NAME"
 echo "==> Wrote dist/$NAME.tar.gz"
 
