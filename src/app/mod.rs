@@ -585,8 +585,10 @@ impl DyoSnap {
     }
 
     /// The size of the main window as a normal window: the last one it had, or the default.
+    /// Never below the window's minimum (900x440): Wayland does not enforce it on a new
+    /// window, and a smaller size may have been saved from the Preferences window.
     pub fn window_size(&self) -> Vec2 {
-        self.settings.window_size.map(|[w, h]| vec2(w, h)).unwrap_or(vec2(980.0, 620.0))
+        self.settings.window_size.map(|[w, h]| vec2(w.max(900.0), h.max(440.0))).unwrap_or(vec2(980.0, 620.0))
     }
 
     /// The size the window opens in: the one a just opened picture or video asks for, or the
