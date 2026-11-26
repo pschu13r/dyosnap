@@ -1,0 +1,91 @@
+# Security audit. Two checks:
+#  - cargo-audit: checks Cargo.lock against the RustSec advisory database and fails on
+#    known vulnerabilities (unmaintained crates are only warnings).
+#  - ffmpeg: the macOS app bundles FFmpeg, which Dependabot cannot see. This opens an issue
+#    when a newer FFmpeg release than the one in scripts/build-ffmpeg.sh exists.
+# Runs when the lockfile, manifest or FFmpeg build script change, every Monday, and by hand.
+# Like the other workflows it has a read-only token (the ffmpeg job may also write issues),
+# does not keep it in .git/config, and pins actions to a commit.
+name: Security audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Cargo.lock
+      - Cargo.toml
+      - scripts/build-ffmpeg.sh
+      - .github/workflows/audit.yml
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  cargo-audit:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install Rust and cargo-audit
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          cargo install --locked cargo-audit@0.23.0
+
+      - name: Audit Cargo.lock
+        run: cargo audit
+
+  ffmpeg:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      # An available update is not a failure of this job, it only opens an issue.
+      - name: Check for a newer FFmpeg release
+        run: |
+          old=$(sed -n 's/^VERSION=//p' scripts/build-ffmpeg.sh)
+          new=$(git ls-remote --tags --refs https://git.ffmpeg.org/ffmpeg.git \
+                  | sed 's#.*refs/tags/##' \
+                  | grep -E '^n[0-9]+(\.[0-9]+)+$' | sed 's/^n//' | sort -V | tail -1)
+          if [ -z "$old" ] || [ -z "$new" ]; then
+            echo "::error::Could not read the FFmpeg versions (bundled: '$old', latest: '$new')."
+            exit 1
+          fi
+          echo "Bundled: $old, latest: $new"
+          if [ "$(printf '%s\n%s\n' "$old" "$new" | sort -V | tail -1)" = "$old" ]; then
+            echo "FFmpeg is up to date."
+            exit 0
+          fi
+          title="FFmpeg $new is out (bundled: $old)"
+          existing=$(gh issue list --state open --search "\"$title\" in:title" --json title \
+                       --jq "[.[] | select(.title == \"$title\")] | length")
+          if [ "$existing" -gt 0 ]; then
+            echo "Issue already open: $title"
+            exit 0
+          fi
+          cat > body.md <<BODY
+          The macOS app bundles FFmpeg $old. FFmpeg $new is out. Most FFmpeg point releases fix CVEs, so the bundled copy should follow.
+
+          - Security fixes: https://ffmpeg.org/security.html
+          - Release: https://ffmpeg.org/download.html
+
+          To update:
+          1. Bump \`VERSION\` in \`scripts/build-ffmpeg.sh\` to $new.
+          2. Run the script. It checks the signature and prints the SHA256 to pin.
+          3. Pin the SHA256 and rebuild the app.
+          BODY
+          gh issue create --title "$title" --body-file body.md

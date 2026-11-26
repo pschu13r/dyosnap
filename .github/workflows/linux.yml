@@ -9,7 +9,9 @@
 # (secret REPO_GPG_PRIVATE_KEY). Actions are pinned to a commit.
 #
 # "Run workflow" with repo_only skips the build and only rebuilds the repositories from the
-# last 3 releases (to seed them, or to rebuild them at any time).
+# last 3 releases (to seed them, or to rebuild them at any time). It only works on main: the
+# repo job runs the scripts of the chosen ref with the signing and deploy keys, so no other
+# branch may start it.
 name: Linux
 
 on:
@@ -49,8 +51,8 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
-          cargo install --locked --features cli cargo-about
-          cargo install --locked cargo-deb cargo-generate-rpm
+          cargo install --locked --features cli cargo-about@0.9.3
+          cargo install --locked cargo-deb@3.8.0 cargo-generate-rpm@0.21.1
 
       - name: Test
         run: cargo test --locked
@@ -114,7 +116,7 @@ jobs:
   # scripts/update-repo.sh.
   repo:
     needs: release
-    if: ${{ !cancelled() && (needs.release.result == 'success' || inputs.repo_only) }}
+    if: ${{ !cancelled() && (needs.release.result == 'success' || (inputs.repo_only && github.ref == 'refs/heads/main')) }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read

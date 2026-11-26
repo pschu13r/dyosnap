@@ -13,6 +13,11 @@ use std::time::Instant;
 
 // Videos opened by the person may come from anywhere. `-protocol_whitelist file` stops
 // ffmpeg from following links inside a file (playlists, network URLs) to other places.
+// `-format_whitelist` stops ffmpeg from guessing another format from the content: a crafted
+// ".mp4" could otherwise be read as an HLS playlist or ffconcat file and pull in local
+// files. We only open mp4/mov/m4v, and ffmpeg's "mov" demuxer covers all of them. (GIF is
+// only an export format here, never an input.)
+const INPUT_FORMATS: &str = "mov";
 
 pub struct Probe {
     pub duration: f32,
@@ -30,7 +35,7 @@ fn parse_fps(line: &str) -> Option<f32> {
 /// Reads duration and size from ffmpeg's description of the file.
 pub fn probe(ffmpeg: &Path, file: &Path) -> Option<Probe> {
     let out = Command::new(ffmpeg)
-        .args(["-hide_banner", "-protocol_whitelist", "file", "-i"])
+        .args(["-hide_banner", "-protocol_whitelist", "file", "-format_whitelist", INPUT_FORMATS, "-i"])
         .arg(file)
         .stdin(Stdio::null())
         .output()
@@ -179,6 +184,7 @@ impl VideoView {
         self.sound = Command::new(ffmpeg)
             // No -re here: the sound card sets the pace (see sound_output_args).
             .args(["-hide_banner", "-loglevel", "error", "-protocol_whitelist", "file"])
+            .args(["-format_whitelist", INPUT_FORMATS])
             // Read only up to the end of the trim; the padding after it is silence.
             .args(["-ss", &format!("{from:.3}"), "-t", &format!("{:.3}", secs.max(0.05)), "-i"])
             .arg(&self.path)
@@ -224,7 +230,7 @@ impl VideoView {
             if play_for.is_some() {
                 cmd.arg("-re");
             }
-            cmd.args(["-protocol_whitelist", "file", "-ss", &format!("{from:.3}"), "-i"]).arg(&path);
+            cmd.args(["-protocol_whitelist", "file", "-format_whitelist", INPUT_FORMATS, "-ss", &format!("{from:.3}"), "-i"]).arg(&path);
             match play_for {
                 Some(d) => {
                     cmd.args(["-t", &format!("{:.3}", d.max(0.05))]);
@@ -274,6 +280,7 @@ impl VideoView {
         }
         let mut cmd = Command::new(ff);
         cmd.args(["-hide_banner", "-loglevel", "error", "-y", "-protocol_whitelist", "file"]);
+        cmd.args(["-format_whitelist", INPUT_FORMATS]);
         if let Some((s, _)) = o.trim {
             cmd.args(["-ss", &format!("{s:.3}")]);
         }

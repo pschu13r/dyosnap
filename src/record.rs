@@ -243,8 +243,11 @@ impl Recorder {
             .map(|p| format!("file '{}'\n", p.display().to_string().replace('\'', "'\\''")))
             .collect();
         std::fs::write(&list, body).map_err(|e| e.to_string())?;
+        // `-safe 0` stays: the segment paths are absolute, which safe mode rejects. The list is
+        // ours, so this is fine; `-protocol_whitelist file` keeps it to local files.
         let ok = Command::new(exe)
-            .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i"])
+            .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0"])
+            .args(["-protocol_whitelist", "file", "-i"])
             .arg(&list)
             .args(["-c", "copy"])
             .arg(&dest)

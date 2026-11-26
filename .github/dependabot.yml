@@ -1,0 +1,19 @@
+# Weekly dependency updates. Minor and patch updates of one ecosystem come as a single PR;
+# major updates get their own PRs, so they are reviewed one by one.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      cargo-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions-minor-patch:
+        update-types: ["minor", "patch"]
