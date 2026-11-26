@@ -11,6 +11,79 @@ use std::time::Duration;
 /// The area of the last "Capture Area", in global points, for "Capture Previous Area".
 static LAST_AREA: Mutex<Option<Rect>> = Mutex::new(None);
 
+/// The `screencapture` that runs now, to stop it from another thread (`cancel_capture`).
+static RUNNING: Mutex<Option<u32>> = Mutex::new(None);
+
+/// Stops the running `screencapture` (the crosshair goes away, no picture is made).
+/// Does nothing if none runs.
+pub fn cancel_capture() {
+    let pid = RUNNING.lock().ok().and_then(|mut p| p.take());
+    if let Some(pid) = pid {
+        let _ = Command::new("/bin/kill").args(["-INT", &pid.to_string()]).status();
+    }
+}
+
+/// Shows the arrow again. `screencapture` and DyoSnap's own selection overlay leave their
+/// crosshair behind over the desktop, which sets no cursor of its own, until the mouse
+/// reaches a window. DyoSnap is not the active app then, and macOS ignores the cursor of
+/// an app in the background unless its connection has "SetsCursorInBackground" (private,
+/// looked up at run time: if it is gone, nothing happens). Main thread only. Does nothing
+/// while a `screencapture` runs, so a new crosshair stays.
+pub fn reset_cursor() {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+    use std::ffi::c_void;
+    use std::sync::Once;
+    if RUNNING.lock().is_ok_and(|p| p.is_some()) {
+        return;
+    }
+    static ALLOW: Once = Once::new();
+    ALLOW.call_once(|| {
+        type DefaultConnection = unsafe extern "C" fn() -> i32;
+        type SetProperty = unsafe extern "C" fn(i32, i32, *const c_void, *const c_void) -> i32;
+        unsafe extern "C" {
+            static kCFBooleanTrue: *const c_void;
+        }
+        // SAFETY: dlsym with a NUL-terminated name; the pointers are only called when found,
+        // with the signatures these CoreGraphics (SkyLight) functions have.
+        unsafe {
+            let conn = libc::dlsym(libc::RTLD_DEFAULT, c"_CGSDefaultConnection".as_ptr());
+            let set = libc::dlsym(libc::RTLD_DEFAULT, c"CGSSetConnectionProperty".as_ptr());
+            if conn.is_null() || set.is_null() {
+                log::info!("cursor: SetsCursorInBackground not available");
+                return;
+            }
+            let conn: DefaultConnection = std::mem::transmute(conn);
+            let set: SetProperty = std::mem::transmute(set);
+            let key = objc2_foundation::NSString::from_str("SetsCursorInBackground");
+            let c = conn();
+            let err = set(c, c, objc2::rc::Retained::as_ptr(&key) as *const c_void, kCFBooleanTrue);
+            log::info!("cursor: SetsCursorInBackground -> {err}");
+        }
+    });
+    let Some(cls) = AnyClass::get(c"NSCursor") else { return };
+    // SAFETY: +[NSCursor arrowCursor] returns a shared cursor; -set takes no arguments.
+    unsafe {
+        let arrow: *mut AnyObject = msg_send![cls, arrowCursor];
+        if !arrow.is_null() {
+            let _: () = msg_send![arrow, set];
+        }
+    }
+}
+
+fn register(child: &Child) {
+    *RUNNING.lock().unwrap_or_else(|e| e.into_inner()) = Some(child.id());
+}
+
+/// Forgets the pid, unless a newer capture has registered its own already.
+fn forget(child: &Child) {
+    if let Ok(mut p) = RUNNING.lock() {
+        if *p == Some(child.id()) {
+            *p = None;
+        }
+    }
+}
+
 /// Runs the capture and blocks until it is done. Returns the image file,
 /// or None if the person cancelled (pressed Esc) or capture failed.
 pub fn run_capture(kind: CaptureKind, sound: bool) -> Option<PathBuf> {
@@ -48,13 +121,22 @@ pub fn run_capture(kind: CaptureKind, sound: bool) -> Option<PathBuf> {
     cmd.arg(&out);
     let ok = if choose_area {
         let Ok(child) = cmd.spawn() else { return None };
+        register(&child);
         let (ok, drag) = wait_watching_mouse(child);
         if ok && out.exists() {
             remember_area(drag, &out);
         }
         ok
     } else {
-        cmd.status().map(|s| s.success()).unwrap_or(false)
+        match cmd.spawn() {
+            Ok(mut child) => {
+                register(&child);
+                let ok = child.wait().map(|s| s.success()).unwrap_or(false);
+                forget(&child);
+                ok
+            }
+            Err(_) => false,
+        }
     };
     if ok && out.exists() { Some(out) } else { None }
 }
@@ -87,6 +169,7 @@ fn wait_watching_mouse(mut child: Child) -> (bool, Option<(Pos2, Pos2)>) {
         was_down = down;
         std::thread::sleep(Duration::from_millis(5));
     };
+    forget(&child);
     let ok = status.is_some_and(|s| s.success());
     // The capture can end before the release was seen: then the mouse is where it ended.
     let end = end.or_else(super::mouse_position);

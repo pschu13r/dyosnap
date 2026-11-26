@@ -22,6 +22,7 @@ use egui::{
 };
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -108,6 +109,10 @@ pub enum DialogKind {
 }
 
 struct Job {
+    /// The action that started it, to tell a repeat from a switch (see `capture_switch`).
+    action: Action,
+    /// Set when the job was cancelled: its thread takes no picture any more.
+    cancelled: Arc<AtomicBool>,
     kind: CaptureKind,
     /// The captured picture(s): one per screen when preparing a recording; empty if cancelled.
     rx: Receiver<Vec<PathBuf>>,
@@ -201,6 +206,10 @@ pub struct DyoSnap {
     /// Linux: put the open main window in front in the next frame (see `logic`).
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     raise: bool,
+    /// macOS: when to show the arrow again after a crosshair (see `platform::reset_cursor`),
+    /// and whether the selection overlay was open in the last frame.
+    cursor_reset_at: Option<Instant>,
+    select_was_open: bool,
 }
 
 impl DyoSnap {
@@ -262,6 +271,8 @@ impl DyoSnap {
             clipboard_wait: None,
             raise: false,
             perm_asking: false,
+            cursor_reset_at: None,
+            select_was_open: false,
         };
         app.refresh_screen();
         if !quiet && !platform::screenshot_allowed() {
@@ -647,6 +658,32 @@ impl DyoSnap {
         }
     }
 
+    /// A `screencapture` ended or the selection overlay closed: the arrow comes back at once
+    /// and again a moment later, once the overlay window is gone. Not while a new selection
+    /// is open: it sets its own cursor.
+    fn reset_cursor_after_capture(&mut self, ctx: &egui::Context) {
+        let open = self.select.is_some();
+        let closed = std::mem::replace(&mut self.select_was_open, open) && !open;
+        if capture::CURSOR_RESET.swap(false, std::sync::atomic::Ordering::SeqCst) || closed {
+            // At once, so no crosshair flashes, and once more when the overlay is surely gone.
+            if !open {
+                platform::reset_cursor();
+            }
+            self.cursor_reset_at = Some(Instant::now() + Duration::from_millis(150));
+        }
+        if let Some(t) = self.cursor_reset_at {
+            let left = t.saturating_duration_since(Instant::now());
+            if !left.is_zero() {
+                ctx.request_repaint_after(left);
+            } else {
+                self.cursor_reset_at = None;
+                if !open {
+                    platform::reset_cursor();
+                }
+            }
+        }
+    }
+
     fn busy(&self) -> bool {
         self.job.is_some() || self.select.is_some() || self.recording.is_some() || self.finishing.is_some()
     }
@@ -692,6 +729,7 @@ impl eframe::App for DyoSnap {
 
         self.resend_lost_uploads(ctx);
         self.handle_events(ctx);
+        self.reset_cursor_after_capture(ctx);
         if test_env("LS_TEST_AUTOREC") {
             if let Some(r) = &self.recording {
                 if r.rec.elapsed() > Duration::from_secs(3) {

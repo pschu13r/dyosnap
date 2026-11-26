@@ -5,13 +5,16 @@
 //! The frame is four thin bars just outside the area, each a layer surface on the overlay
 //! layer that takes no clicks and no keys. The recording crops to the area, so the bars
 //! are not in the video. The control bar is one more layer surface that does take clicks:
-//! timer, Pause, Stop and Cancel, drawn here with tiny-skia and ab_glyph.
+//! timer, Pause, Stop and Cancel, drawn here with tiny-skia and ab_glyph. It can be moved
+//! (drag the timer; the surface moves by its margins) and collapsed to a small pill (see
+//! `crate::recbar`). A full-screen recording collapses it by itself after a few seconds.
 //!
 //! All surfaces live on their own Wayland connection in their own thread. Without layer
 //! shell `RecFrame::show` returns `None`, and the recording runs without frame and bar.
 
 use ab_glyph::{Font, FontRef, ScaleFont};
-use egui::{Rect, pos2, vec2};
+use crate::recbar;
+use egui::{Pos2, Rect, pos2, vec2};
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState, Region};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
 use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
@@ -31,7 +34,7 @@ use smithay_client_toolkit::{
 use std::os::fd::AsRawFd;
 use std::sync::mpsc;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use wayland_client::globals::registry_queue_init;
 use wayland_client::protocol::{wl_output, wl_pointer, wl_seat, wl_shm, wl_surface};
 use wayland_client::{Connection, QueueHandle};
@@ -46,7 +49,6 @@ const GAP: f32 = 2.0;
 const RED: u32 = 0xFF_E2_26_26;
 const ORANGE: u32 = 0xFF_FF_AA_00;
 /// The control bar, in points, as on macOS (app/capture.rs `recording_overlays`).
-const BAR_H: f32 = 40.0;
 const BTN_H: f32 = 26.0;
 const BTN_PAUSE_W: f32 = 36.0;
 const BTN_STOP_W: f32 = 62.0;
@@ -145,24 +147,9 @@ fn bars(area: Rect, screen: Rect) -> Vec<Rect> {
     .collect()
 }
 
-/// Where the control bar goes: below the area, or above it, or at the bottom of the screen.
-/// The same rule as on macOS.
-fn bar_rect(area: Rect, screen: Rect, can_pause: bool) -> Rect {
-    let size = vec2(if can_pause { 256.0 } else { 214.0 }, BAR_H);
-    let mut pos = pos2(area.center().x - size.x / 2.0, area.max.y + 12.0);
-    if pos.y + size.y > screen.max.y - 4.0 {
-        pos.y = area.min.y - size.y - 12.0;
-        if pos.y < screen.min.y + 30.0 {
-            pos.y = screen.max.y - size.y - 70.0;
-        }
-    }
-    pos.x = pos.x.clamp(screen.min.x + 4.0, (screen.max.x - size.x - 4.0).max(screen.min.x + 4.0));
-    Rect::from_min_size(pos, size)
-}
-
 /// The buttons of a bar `w` points wide, right to left as on macOS: Cancel, Pause, Stop.
 fn buttons(w: f32, can_pause: bool) -> Vec<(Rect, BarAction)> {
-    let y = (BAR_H - BTN_H) / 2.0;
+    let y = (recbar::BAR_H - BTN_H) / 2.0;
     let mut x = w - 8.0;
     let mut out = Vec::new();
     let mut add = |width: f32, a: BarAction, out: &mut Vec<(Rect, BarAction)>| {
@@ -176,6 +163,43 @@ fn buttons(w: f32, can_pause: bool) -> Vec<(Rect, BarAction)> {
     }
     add(BTN_STOP_W, BarAction::Stop, &mut out);
     out
+}
+
+/// What a point on the control bar is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Part {
+    Button(BarAction),
+    Collapse,
+    /// Dot and timer: drag to move the bar.
+    Grip,
+    /// The whole collapsed bar: click to expand, drag to move.
+    Pill,
+}
+
+/// The part of a bar `w` points wide at `p` (in the bar's own points).
+fn part_at(collapsed: bool, w: f32, can_pause: bool, p: Pos2) -> Option<Part> {
+    if collapsed {
+        return Rect::from_min_size(Pos2::ZERO, recbar::PILL).contains(p).then_some(Part::Pill);
+    }
+    let list = buttons(w, can_pause);
+    if let Some((_, a)) = list.iter().find(|(r, _)| r.contains(p)) {
+        return Some(Part::Button(*a));
+    }
+    let first = list.iter().map(|(r, _)| r.min.x).fold(w, f32::min);
+    let collapse = recbar::collapse_button(first);
+    if collapse.contains(p) {
+        return Some(Part::Collapse);
+    }
+    (p.x >= 0.0 && p.x < collapse.min.x && p.y >= 0.0 && p.y < recbar::BAR_H).then_some(Part::Grip)
+}
+
+/// A pressed left button on the bar.
+struct Press {
+    /// Where, in the bar's points. The bar moves under the pointer, so this stays the
+    /// grip point while dragging.
+    at: Pos2,
+    part: Option<Part>,
+    dragging: bool,
 }
 
 struct Surface {
@@ -193,7 +217,21 @@ struct Bar {
     scale: i32,
     can_pause: bool,
     elapsed: String,
-    hover: Option<BarAction>,
+    hover: Option<Part>,
+    /// Where the bar is (global points) and the screen it is on.
+    rect: Rect,
+    screen: Rect,
+    collapsed: bool,
+    press: Option<Press>,
+    /// The pointer is on the bar.
+    inside: bool,
+    /// For the cursor shape: the serial of the last enter, and the shape now.
+    serial: u32,
+    shape: Option<Shape>,
+    /// After a move, wait for the compositor to show it before the next one (else the
+    /// pointer position it still reports would move the bar twice).
+    waiting_frame: bool,
+    last_move: Instant,
 }
 
 struct State {
@@ -206,6 +244,8 @@ struct State {
     bar: Option<Bar>,
     paused: bool,
     closed: bool,
+    /// A full-screen recording collapses its bar then, unless the pointer is on it.
+    auto_collapse: Option<Instant>,
     pointer: Option<wl_pointer::WlPointer>,
     cursor_shapes: Option<CursorShapeManager>,
     cursor_device: Option<WpCursorShapeDeviceV1>,
@@ -259,6 +299,43 @@ impl State {
         }
     }
 
+    /// Moves and resizes the bar's surface to `bar.rect` and draws it again.
+    fn relayout(&mut self, qh: &QueueHandle<Self>) {
+        let Some(bar) = &mut self.bar else { return };
+        let local = bar.rect.min - bar.screen.min;
+        let size = (bar.rect.width().round() as u32, bar.rect.height().round() as u32);
+        bar.surface.layer.set_margin(local.y.round() as i32, 0, 0, local.x.round() as i32);
+        bar.surface.layer.set_size(size.0, size.1);
+        bar.surface.size = size;
+        bar.waiting_frame = true;
+        bar.last_move = Instant::now();
+        let surface = bar.surface.layer.wl_surface();
+        surface.frame(qh, surface.clone());
+        self.draw_bar();
+    }
+
+    /// Collapses or expands the bar; the edge nearest to the screen edge stays.
+    fn set_collapsed(&mut self, collapsed: bool, qh: &QueueHandle<Self>) {
+        let Some(bar) = &mut self.bar else { return };
+        bar.collapsed = collapsed;
+        bar.rect = recbar::resized(bar.rect, recbar::size(collapsed, bar.can_pause), bar.screen);
+        bar.hover = None;
+        self.auto_collapse = None;
+        self.relayout(qh);
+    }
+
+    fn set_shape(&mut self, pointer: &wl_pointer::WlPointer, qh: &QueueHandle<Self>, shape: Shape) {
+        let Some(bar) = &mut self.bar else { return };
+        if bar.shape == Some(shape) {
+            return;
+        }
+        bar.shape = Some(shape);
+        if let Some(m) = &self.cursor_shapes {
+            let dev = self.cursor_device.get_or_insert_with(|| m.get_shape_device(pointer, qh));
+            dev.set_shape(bar.serial, shape);
+        }
+    }
+
     fn draw_all(&mut self) {
         for i in 0..self.frame.len() {
             self.draw_frame(i);
@@ -292,8 +369,21 @@ fn paint_bar(font: &FontRef<'static>, bar: &Bar, paused: bool) -> Option<tiny_sk
         pm.fill_path(&c, &p, FillRule::Winding, t, None);
     }
     text(&mut pm, font, &bar.elapsed, (8.0 + 12.0 + 6.0) * sc, h / 2.0 * sc, 13.0 * sc, (30, 30, 30), false);
-    for (r, a) in buttons(w, bar.can_pause) {
-        let hover = bar.hover == Some(a);
+    if bar.collapsed {
+        return Some(pm);
+    }
+    // Collapse: a minus, left of the buttons.
+    let list = buttons(w, bar.can_pause);
+    let first = list.iter().map(|(r, _)| r.min.x).fold(w, f32::min);
+    let cr = recbar::collapse_button(first);
+    fill(&mut pm, cr, 4.0, if bar.hover == Some(Part::Collapse) { (200, 200, 200) } else { (214, 214, 214) });
+    let mut ip = Paint::default();
+    ip.set_color_rgba8(40, 40, 40, 255);
+    if let Some(m) = tiny_skia::Rect::from_xywh(cr.center().x - 5.0, cr.center().y - 1.0, 10.0, 2.0) {
+        pm.fill_rect(m, &ip, t, None);
+    }
+    for (r, a) in list {
+        let hover = bar.hover == Some(Part::Button(a));
         match a {
             BarAction::Stop => {
                 fill(&mut pm, r, 4.0, if hover { (240, 58, 58) } else { (226, 38, 38) });
@@ -420,6 +510,7 @@ fn run(
         bar: None,
         paused: false,
         closed: false,
+        auto_collapse: None,
         pointer: None,
         cursor_shapes: CursorShapeManager::bind(&globals, &qh).ok(),
         cursor_device: None,
@@ -476,10 +567,27 @@ fn run(
         bytes += (s.size.0 * s.size.1 * 4) as usize;
         st.frame.push(s);
     }
-    let br = bar_rect(area, *screen, can_pause);
+    let br = recbar::initial_rect(area, *screen, can_pause);
     let bar_surface = place(br, true);
     bytes += (bar_surface.size.0 * bar_surface.size.1 * 4) as usize * (*scale as usize).pow(2);
-    st.bar = Some(Bar { surface: bar_surface, scale: *scale, can_pause, elapsed: "00:00".into(), hover: None });
+    st.bar = Some(Bar {
+        surface: bar_surface,
+        scale: *scale,
+        can_pause,
+        elapsed: "00:00".into(),
+        hover: None,
+        rect: br,
+        screen: *screen,
+        collapsed: false,
+        press: None,
+        inside: false,
+        serial: 0,
+        shape: None,
+        waiting_frame: false,
+        last_move: Instant::now(),
+    });
+    // A full-screen recording would show the bar: it collapses after a few seconds.
+    st.auto_collapse = recbar::is_full_screen(area, *screen).then(|| Instant::now() + Duration::from_secs(recbar::AUTO_COLLAPSE_SECS));
     // Room for two buffers per surface: one shown, one being drawn.
     st.pool = Some(SlotPool::new(bytes * 2, &st.shm).map_err(|e| e.to_string())?);
     queue.roundtrip(&mut st).map_err(|e| e.to_string())?;
@@ -509,6 +617,13 @@ fn run(
         }
         if st.closed {
             return Ok(());
+        }
+        // While the pointer is on the bar, wait: it collapses once the pointer leaves.
+        if st.auto_collapse.is_some_and(|t| Instant::now() >= t) && !st.bar.as_ref().is_some_and(|b| b.inside) {
+            st.auto_collapse = None;
+            if st.bar.as_ref().is_some_and(|b| !b.collapsed) {
+                st.set_collapsed(true, &qh);
+            }
         }
         queue.dispatch_pending(&mut st).map_err(|e| e.to_string())?;
         conn.flush().map_err(|e| e.to_string())?;
@@ -549,38 +664,77 @@ impl LayerShellHandler for State {
 
 impl PointerHandler for State {
     fn pointer_frame(&mut self, _: &Connection, qh: &QueueHandle<Self>, pointer: &wl_pointer::WlPointer, events: &[PointerEvent]) {
-        let Some(bar) = &self.bar else { return };
-        let bar_surface = bar.surface.layer.wl_surface().clone();
-        let (w, can_pause) = (bar.surface.size.0 as f32, bar.can_pause);
-        let hit = |pos: (f64, f64)| {
-            buttons(w, can_pause).into_iter().find(|(r, _)| r.contains(pos2(pos.0 as f32, pos.1 as f32))).map(|(_, a)| a)
-        };
-        let mut hover = bar.hover;
+        let Some(bar_surface) = self.bar.as_ref().map(|b| b.surface.layer.wl_surface().clone()) else { return };
+        let mut redraw = false;
         for ev in events.iter().filter(|e| e.surface == bar_surface) {
+            let p = pos2(ev.position.0 as f32, ev.position.1 as f32);
+            let Some(bar) = self.bar.as_mut() else { return };
+            let (w, can_pause, collapsed) = (bar.surface.size.0 as f32, bar.can_pause, bar.collapsed);
+            let part = part_at(collapsed, w, can_pause, p);
+            let hover = |part: Option<Part>| part.filter(|p| matches!(p, Part::Button(_) | Part::Collapse));
+            let (mut move_by, mut toggle, mut action) = (None, false, None);
+            let was_hover = bar.hover;
             match ev.kind {
                 PointerEventKind::Enter { serial } => {
-                    // A plain arrow over the bar.
-                    if let Some(m) = &self.cursor_shapes {
-                        let dev = self.cursor_device.get_or_insert_with(|| m.get_shape_device(pointer, qh));
-                        dev.set_shape(serial, Shape::Default);
-                    }
-                    hover = hit(ev.position);
+                    bar.serial = serial;
+                    bar.shape = None;
+                    bar.inside = true;
+                    bar.hover = hover(part);
                 }
-                PointerEventKind::Motion { .. } => hover = hit(ev.position),
-                PointerEventKind::Leave { .. } => hover = None,
-                // Left button, let go on a button.
-                PointerEventKind::Release { button: 0x110, .. } => {
-                    if let Some(a) = hit(ev.position) {
-                        let _ = self.actions.send(a);
+                PointerEventKind::Leave { .. } => {
+                    bar.inside = false;
+                    bar.hover = None;
+                }
+                PointerEventKind::Motion { .. } => {
+                    bar.hover = hover(part);
+                    if let Some(press) = &mut bar.press {
+                        let grip = matches!(press.part, Some(Part::Grip | Part::Pill));
+                        if grip && !press.dragging && recbar::is_drag(press.at, p) {
+                            press.dragging = true;
+                        }
+                        // The surface moves under the pointer: each step is the way from
+                        // the press point, once the last move is on screen.
+                        if press.dragging && (!bar.waiting_frame || bar.last_move.elapsed() > Duration::from_millis(100)) {
+                            move_by = Some(p - press.at);
+                        }
                     }
+                }
+                // Left button.
+                PointerEventKind::Press { button: 0x110, .. } => bar.press = Some(Press { at: p, part, dragging: false }),
+                PointerEventKind::Release { button: 0x110, .. } => {
+                    // A click: pressed and let go on the same part, without a drag.
+                    if bar.press.take().is_some_and(|pr| !pr.dragging && pr.part == part) {
+                        match part {
+                            Some(Part::Button(a)) => action = Some(a),
+                            Some(Part::Collapse | Part::Pill) => toggle = true,
+                            _ => {}
+                        }
+                    }
+                    bar.hover = hover(part);
                 }
                 _ => {}
             }
-        }
-        if self.bar.as_ref().is_some_and(|b| b.hover != hover) {
-            if let Some(b) = &mut self.bar {
-                b.hover = hover;
+            let shape = match (bar.press.as_ref().is_some_and(|p| p.dragging), part) {
+                (true, _) => Shape::Grabbing,
+                (_, Some(Part::Grip | Part::Pill)) => Shape::Grab,
+                _ => Shape::Default,
+            };
+            redraw |= bar.hover != was_hover;
+            if let Some(a) = action {
+                let _ = self.actions.send(a);
             }
+            if let Some(d) = move_by {
+                if let Some(bar) = &mut self.bar {
+                    bar.rect = recbar::dragged(bar.rect, d, bar.screen);
+                }
+                self.relayout(qh);
+            }
+            if toggle {
+                self.set_collapsed(!collapsed, qh);
+            }
+            self.set_shape(pointer, qh, shape);
+        }
+        if redraw {
             self.draw_bar();
         }
     }
@@ -612,7 +766,12 @@ impl SeatHandler for State {
 impl CompositorHandler for State {
     fn scale_factor_changed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: i32) {}
     fn transform_changed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: wl_output::Transform) {}
-    fn frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: u32) {}
+    fn frame(&mut self, _: &Connection, _: &QueueHandle<Self>, surface: &wl_surface::WlSurface, _: u32) {
+        // The last move of the bar is on screen.
+        if let Some(b) = self.bar.as_mut().filter(|b| b.surface.layer.wl_surface() == surface) {
+            b.waiting_frame = false;
+        }
+    }
     fn surface_enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: &wl_output::WlOutput) {}
     fn surface_leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: &wl_output::WlOutput) {}
 }
@@ -675,22 +834,23 @@ mod tests {
     }
 
     #[test]
-    fn control_bar_goes_below_above_or_at_the_bottom() {
-        let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(1920.0, 1080.0));
-        let mid = Rect::from_min_size(pos2(500.0, 200.0), vec2(400.0, 300.0));
-        let b = bar_rect(mid, screen, true);
-        assert_eq!(b.min.y, 512.0);
-        assert!(!b.intersects(mid));
-        // No room below: above.
-        let low = Rect::from_min_size(pos2(500.0, 700.0), vec2(400.0, 360.0));
-        assert!(bar_rect(low, screen, true).max.y <= low.min.y);
-        // Whole screen: near the bottom, on screen.
-        let full = bar_rect(screen, screen, false);
-        assert!(screen.contains_rect(full));
+    fn parts_of_the_bar() {
+        let w = recbar::bar_size(true).x;
+        // Dot and timer are the grip, the buttons are buttons, the minus collapses.
+        assert_eq!(part_at(false, w, true, pos2(20.0, 20.0)), Some(Part::Grip));
+        let (stop, a) = buttons(w, true)[2];
+        assert_eq!(a, BarAction::Stop);
+        assert_eq!(part_at(false, w, true, stop.center()), Some(Part::Button(BarAction::Stop)));
+        let c = recbar::collapse_button(stop.min.x);
+        assert_eq!(part_at(false, w, true, c.center()), Some(Part::Collapse));
+        assert!(c.max.x < stop.min.x);
         // Buttons fit inside the bar.
-        for (r, _) in buttons(256.0, true) {
-            assert!(r.min.x > 0.0 && r.max.x < 256.0);
+        for (r, _) in buttons(w, true) {
+            assert!(r.min.x > 0.0 && r.max.x < w);
         }
+        // The pill is one part.
+        assert_eq!(part_at(true, recbar::PILL.x, true, pos2(40.0, 14.0)), Some(Part::Pill));
+        assert_eq!(part_at(true, recbar::PILL.x, true, pos2(90.0, 14.0)), None);
     }
 
     #[test]
@@ -699,7 +859,7 @@ mod tests {
         // A bar needs a surface only for its size; paint_bar reads nothing else from it.
         let pm = {
             let w = 256.0;
-            let mut pm = tiny_skia::Pixmap::new((w * 2.0) as u32, (BAR_H * 2.0) as u32).unwrap();
+            let mut pm = tiny_skia::Pixmap::new((w * 2.0) as u32, (recbar::BAR_H * 2.0) as u32).unwrap();
             text(&mut pm, &font, "01:23", 52.0, 40.0, 26.0, (30, 30, 30), false);
             pm
         };

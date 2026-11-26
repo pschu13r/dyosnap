@@ -2,6 +2,15 @@
 //! the overlays shown while recording.
 
 use super::*;
+use crate::recbar;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Counts the capture jobs; see `start_capture_ex`.
+static JOB_GEN: AtomicU64 = AtomicU64::new(0);
+
+/// Set by a capture job when it ends, also a cancelled one: its `screencapture` is gone and
+/// the arrow can come back (see `platform::reset_cursor`).
+pub(super) static CURSOR_RESET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Pixels per point of the screen under the mouse, where a capture just ended.
 /// Wayland gives no mouse position; there it is the first screen.
@@ -30,6 +39,8 @@ pub(super) struct SelScreen {
 /// Choosing the area to record, or on Linux the area of a screenshot. One overlay window
 /// per screen; the area is in global points, so it can be dragged from one screen to another.
 pub(super) struct Select {
+    /// The action that started it (see `capture_switch`).
+    pub(super) action: Action,
     pub(super) screens: Vec<SelScreen>,
     pub(super) rect: Option<Rect>,
     /// The area before "full screen" was clicked, to switch back.
@@ -108,10 +119,33 @@ pub(super) struct RecState {
     /// The screen being recorded (global points).
     pub(super) screen: Rect,
     pub(super) last_secs: u64,
+    /// The control bar (macOS; see `recbar`): where it was placed (the builder's position
+    /// changes only when the bar is collapsed or expanded, else it would fight a drag),
+    /// where it is now, and whether it is collapsed.
+    pub(super) bar_pos: Option<Pos2>,
+    pub(super) bar_seen: Option<Rect>,
+    pub(super) bar_collapsed: bool,
+    /// A full-screen recording collapses its bar at this time, unless the mouse is on it.
+    pub(super) bar_collapse_at: Option<Instant>,
     /// Linux: the red frame around the area (KDE, Sway, Hyprland, COSMIC; not GNOME).
     /// Dropped with the recording, which removes it.
     #[cfg(target_os = "linux")]
     pub(super) frame: Option<crate::platform::RecFrame>,
+}
+
+impl RecState {
+    /// Collapses or expands the bar where it is now. The builder gets the new place, so the
+    /// window follows.
+    fn set_bar_collapsed(&mut self, collapsed: bool, can_pause: bool) {
+        let size = recbar::size(collapsed, can_pause);
+        let from = self.bar_seen.or(self.bar_pos.map(|p| Rect::from_min_size(p, recbar::size(self.bar_collapsed, can_pause))));
+        if let Some(from) = from {
+            let at = recbar::resized(from, size, self.screen);
+            self.bar_pos = Some(at.min);
+            self.bar_seen = Some(at);
+        }
+        self.bar_collapsed = collapsed;
+    }
 }
 
 pub(super) fn edges_near(r: Rect, p: Pos2, tol: f32) -> u8 {
@@ -174,15 +208,51 @@ pub(super) fn countdown_overlay(ui: &mut Ui, painter: &egui::Painter, full: Rect
 
 impl DyoSnap {
     pub(super) fn start_capture(&mut self, ctx: &egui::Context, kind: CaptureKind, for_record: bool) {
-        self.start_capture_ex(ctx, kind, for_record, None);
+        let action = if for_record { Action::Record } else { Action::Capture(kind) };
+        self.start_capture_ex(ctx, action, kind, for_record, None);
     }
 
-    /// A screenshot that goes into an extra folder (see `handle_capture`).
-    pub(super) fn start_capture_to(&mut self, ctx: &egui::Context, kind: CaptureKind, target: Option<PathBuf>) {
-        self.start_capture_ex(ctx, kind, false, target);
+    /// A screenshot that goes into the extra folder `n` (see `handle_capture`).
+    pub(super) fn start_capture_to(&mut self, ctx: &egui::Context, n: u32, target: Option<PathBuf>) {
+        self.start_capture_ex(ctx, Action::CaptureTo(n), CaptureKind::Area, false, target);
     }
 
-    fn start_capture_ex(&mut self, ctx: &egui::Context, kind: CaptureKind, for_record: bool, target: Option<PathBuf>) {
+    /// What the person is choosing right now: a capture that waits for the area or the
+    /// window, or the picture it takes first. None while recording or saving a recording:
+    /// then no shortcut cancels anything.
+    pub(super) fn choosing(&self) -> Option<Action> {
+        if self.recording.is_some() || self.finishing.is_some() {
+            return None;
+        }
+        self.select.as_ref().map(|s| s.action).or(self.job.as_ref().map(|j| j.action))
+    }
+
+    /// Cancels what is being chosen, without a window or a toast. `restart`: a new capture
+    /// starts right after, so the windows are left to it.
+    pub(super) fn cancel_choosing(&mut self, ctx: &egui::Context, restart: bool) {
+        let had_job = self.job.is_some();
+        // The thread may still send something: nobody listens any more (see `start_capture_ex`).
+        if let Some(job) = self.job.take() {
+            job.cancelled.store(true, Ordering::SeqCst);
+            platform::cancel_capture();
+        }
+        let had_select = self.select.take().is_some();
+        if had_select {
+            platform::end_screen_session();
+        }
+        // Linux: the selection is the main window itself, it closes. macOS: the overlays and
+        // the crosshair go away on their own; the next picture waits for them, as it does for
+        // windows (see `was_visible`).
+        let open = if cfg!(target_os = "linux") { had_select } else { had_job || had_select };
+        if open {
+            self.visible = true;
+            if !restart && cfg!(target_os = "linux") {
+                self.hide_window(ctx);
+            }
+        }
+    }
+
+    fn start_capture_ex(&mut self, ctx: &egui::Context, action: Action, kind: CaptureKind, for_record: bool, target: Option<PathBuf>) {
         if self.busy() {
             return;
         }
@@ -235,12 +305,33 @@ impl DyoSnap {
         let ctx2 = ctx.clone();
         let cursor = self.settings.capture_cursor;
         let sound = self.settings.sound && !for_record;
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let stop = cancelled.clone();
+        let generation = JOB_GEN.fetch_add(1, Ordering::SeqCst) + 1;
         std::thread::spawn(move || {
+            // A cancelled job (see `cancel_choosing`) has no receiver. Its files go away, and
+            // so does a screen share it may have started, unless a newer job has begun since:
+            // that one ends the share itself.
+            let send = move |r: Vec<PathBuf>| {
+                if let Err(e) = tx.send(r) {
+                    for p in e.0 {
+                        let _ = std::fs::remove_file(p);
+                    }
+                    if JOB_GEN.load(Ordering::SeqCst) == generation {
+                        platform::end_screen_session();
+                    }
+                }
+                CURSOR_RESET.store(true, Ordering::SeqCst);
+                ctx2.request_repaint();
+            };
             if was_visible {
                 std::thread::sleep(Duration::from_millis(350));
             }
             if let (true, CaptureKind::Timed(s)) = (select_shot, kind) {
                 std::thread::sleep(Duration::from_secs(s as u64));
+            }
+            if stop.load(Ordering::SeqCst) {
+                return send(Vec::new());
             }
             // Before the picture: DyoSnap's own window is not open yet.
             #[cfg(target_os = "linux")]
@@ -258,10 +349,9 @@ impl DyoSnap {
             } else {
                 platform::run_capture(kind, sound).into_iter().collect()
             };
-            let _ = tx.send(r);
-            ctx2.request_repaint();
+            send(r);
         });
-        self.job = Some(Job { rx, kind, for_record, select_shot, target, windows });
+        self.job = Some(Job { action, cancelled, rx, kind, for_record, select_shot, target, windows });
     }
 
     /// A new picture. `target`: an extra folder to save it into (and copy it), whatever
@@ -733,6 +823,11 @@ impl DyoSnap {
                     rect,
                     screen: screen_bounds,
                     last_secs: u64::MAX,
+                    bar_pos: None,
+                    bar_seen: None,
+                    bar_collapsed: false,
+                    bar_collapse_at: recbar::is_full_screen(rect, screen_bounds)
+                        .then(|| Instant::now() + Duration::from_secs(recbar::AUTO_COLLAPSE_SECS)),
                     #[cfg(target_os = "linux")]
                     frame: crate::platform::RecFrame::show(rect, can_pause),
                 });
@@ -750,12 +845,10 @@ impl DyoSnap {
         let r = self.recording.as_ref()?;
         let rect = r.rect;
         let screen = r.screen;
-        let monitor = screen.size();
         let paused = r.rec.is_paused();
         let can_pause = r.rec.can_pause();
         let elapsed = record::format_elapsed(r.rec.elapsed());
-        let full_screen = rect.width() >= monitor.x - 2.0 && rect.height() >= monitor.y - 2.0;
-        let _ = monitor;
+        let full_screen = recbar::is_full_screen(rect, screen);
 
         // Red frame around the area: four thin solid bars just outside it, so nothing covers
         // the area itself (a see-through window would be recorded as black).
@@ -789,36 +882,85 @@ impl DyoSnap {
             }
         }
 
-        // Small control bar below the area.
-        let bar_size = vec2(if can_pause { 256.0 } else { 214.0 }, 40.0);
-        // The control bar goes below the area, or above it, on the same screen.
-        let mut pos = pos2(rect.center().x - bar_size.x / 2.0, rect.max.y + 12.0);
-        if pos.y + bar_size.y > screen.max.y - 4.0 {
-            pos.y = rect.min.y - bar_size.y - 12.0;
-            if pos.y < screen.min.y + 30.0 {
-                pos.y = screen.max.y - bar_size.y - 70.0;
+        // Small control bar below the area (or at the bottom right for a full-screen
+        // recording). It moves by dragging its left part and collapses to a pill.
+        let r = self.recording.as_mut()?;
+        if r.bar_pos.is_none() {
+            let at = recbar::initial_rect(rect, screen, can_pause);
+            r.bar_pos = Some(at.min);
+            r.bar_seen = Some(at);
+        }
+        // The auto-collapse of a full-screen recording, unless the mouse is on the bar.
+        if let Some(t) = r.bar_collapse_at {
+            let left = t.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                let on_bar = platform::mouse_position().is_some_and(|m| r.bar_seen.is_some_and(|b| b.contains(m)));
+                if on_bar {
+                    // Wait: it collapses once the mouse leaves.
+                    r.bar_collapse_at = Some(Instant::now() + Duration::from_millis(300));
+                    ctx.request_repaint_after(Duration::from_millis(300));
+                } else {
+                    r.bar_collapse_at = None;
+                    r.set_bar_collapsed(true, can_pause);
+                }
+            } else {
+                ctx.request_repaint_after(left);
             }
         }
-        pos.x = pos.x.clamp(screen.min.x + 4.0, (screen.max.x - bar_size.x - 4.0).max(screen.min.x + 4.0));
+        let collapsed = r.bar_collapsed;
+        let size = recbar::size(collapsed, can_pause);
+        let pos = r.bar_pos.unwrap_or(Pos2::ZERO);
         let builder = ViewportBuilder::default()
             .with_app_id(crate::platform::APP_ID)
             .with_title("Recording")
             .with_decorations(false)
             .with_window_level(WindowLevel::AlwaysOnTop)
             .with_position(pos)
-            .with_inner_size(bar_size)
+            .with_inner_size(size)
             .with_resizable(false)
             .with_taskbar(false)
             .with_active(false);
-        crate::show_immediate(ctx, ViewportId::from_hash_of("dyosnap_recbar"), builder, |ui, _| {
+        let dot_color = if paused { Color32::from_rgb(255, 170, 0) } else { RED };
+        let (act, seen, toggle) = crate::show_immediate(ctx, ViewportId::from_hash_of("dyosnap_recbar"), builder, |ui, _| {
+            let ctx = ui.ctx().clone();
             let mut act = None;
+            let mut toggle = false;
+            // Dragging the window is left to the system; it starts on the first movement.
+            let grab = |ui: &Ui, resp: &egui::Response| {
+                if resp.drag_started() {
+                    ctx.send_viewport_cmd(ViewportCommand::StartDrag);
+                }
+                if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                }
+            };
             Frame::new().fill(Color32::from_rgb(236, 236, 238)).inner_margin(Margin::symmetric(8, 6)).show(ui, |ui| {
                 ui.set_min_size(ui.available_size());
+                if collapsed {
+                    // The whole pill: a click expands it, a drag moves it.
+                    let resp = ui.interact(ui.max_rect().expand2(vec2(8.0, 6.0)), Id::new("recbar_pill"), Sense::click_and_drag());
+                    ui.horizontal_centered(|ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        let (dot, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
+                        ui.painter().circle_filled(dot.center(), 5.0, dot_color);
+                        ui.add(egui::Label::new(egui::RichText::new(elapsed.clone()).size(BAR_FONT).color(Color32::from_gray(30))).selectable(false));
+                    });
+                    grab(ui, &resp);
+                    if resp.on_hover_text("Show the controls").clicked() {
+                        toggle = true;
+                    }
+                    return;
+                }
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
                     let (dot, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
-                    ui.painter().circle_filled(dot.center(), 5.0, if paused { Color32::from_rgb(255, 170, 0) } else { RED });
-                    ui.label(egui::RichText::new(elapsed.clone()).size(BAR_FONT).color(Color32::from_gray(30)));
+                    ui.painter().circle_filled(dot.center(), 5.0, dot_color);
+                    let label = ui.add(egui::Label::new(egui::RichText::new(elapsed.clone()).size(BAR_FONT).color(Color32::from_gray(30))).selectable(false));
+                    // Dot and timer: the grip.
+                    let full = ui.max_rect().expand2(vec2(8.0, 6.0));
+                    let grip = Rect::from_min_max(full.min, pos2(label.rect.max.x + 4.0, full.max.y));
+                    let resp = ui.interact(grip, Id::new("recbar_grip"), Sense::click_and_drag());
+                    grab(ui, &resp);
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         let cancel = ui.add(
                             egui::Button::new(egui::RichText::new("Cancel").color(Color32::from_gray(40)))
@@ -844,10 +986,31 @@ impl DyoSnap {
                         if stop.clicked() {
                             act = Some(Action::FinishRec);
                         }
+                        // Collapse: a minus, left of Stop.
+                        let (r, cr) = ui.allocate_exact_size(vec2(recbar::COLLAPSE_W, TOOL_H), Sense::click());
+                        ui.painter().rect_filled(r, 4.0, if cr.hovered() { Color32::from_gray(200) } else { Color32::from_gray(214) });
+                        ui.painter().line_segment([r.center() - vec2(5.0, 0.0), r.center() + vec2(5.0, 0.0)], Stroke::new(2.0, Color32::from_gray(40)));
+                        if cr.on_hover_text("Collapse").clicked() {
+                            toggle = true;
+                        }
                     });
                 });
             });
-            act
-        })
+            let seen = ctx.input(|i| i.viewport().outer_rect);
+            (act, seen, toggle)
+        });
+        // The window's real place, so a collapse starts from where it was dragged to.
+        if let Some(r) = self.recording.as_mut() {
+            if let Some(s) = seen {
+                r.bar_seen = Some(s);
+            }
+            if toggle {
+                r.set_bar_collapsed(!collapsed, can_pause);
+                // A bar the person opened or closed by hand stays so.
+                r.bar_collapse_at = None;
+                ctx.request_repaint();
+            }
+        }
+        act
     }
 }

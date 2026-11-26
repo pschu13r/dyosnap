@@ -10,6 +10,7 @@ mod editor;
 mod icons;
 mod platform;
 mod prefs;
+mod recbar;
 mod record;
 mod settings;
 mod video;

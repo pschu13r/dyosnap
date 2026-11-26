@@ -21,6 +21,14 @@ pub fn run_capture(kind: CaptureKind, _sound: bool) -> Option<PathBuf> {
     take_file(&src, "shot")
 }
 
+/// Nothing to stop: the portal's own picker (Window on GNOME) can't be closed from here,
+/// and the job thread of the other captures checks a flag itself. The result of a
+/// cancelled job is dropped by the app.
+pub fn cancel_capture() {}
+
+/// macOS only: the desktop resets the pointer itself here.
+pub fn reset_cursor() {}
+
 fn portal_screenshot(interactive: bool) -> Option<PathBuf> {
     super::portal::register();
     ensure_pictures_dir();

@@ -28,6 +28,25 @@ pub(super) fn action_from_id(id: &str, delay: u32) -> Option<Action> {
     })
 }
 
+/// What a capture or recording action does while a capture is being chosen.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Switch {
+    /// Nothing is being chosen: start it.
+    Start,
+    /// The same action again: cancel, like Esc.
+    Cancel,
+    /// Another action: cancel what is chosen and start this.
+    Replace,
+}
+
+pub(super) fn capture_switch(choosing: Option<Action>, new: Action) -> Switch {
+    match choosing {
+        None => Switch::Start,
+        Some(c) if c == new => Switch::Cancel,
+        Some(_) => Switch::Replace,
+    }
+}
+
 /// The menu-bar menu, laid out like the original's but without the cloud items:
 /// "Latest Uploads" becomes a list of recent local snaps, "Storage" opens the save folder.
 pub(super) fn build_menu(recording: bool, st: &Settings) -> Vec<platform::MenuEntry> {
@@ -147,15 +166,21 @@ impl DyoSnap {
 
     pub(super) fn run_action(&mut self, ctx: &egui::Context, a: Action) {
         match a {
-            Action::Capture(kind) => self.start_capture(ctx, kind, false),
+            Action::Capture(kind) => {
+                if self.switch_choosing(ctx, a) {
+                    self.start_capture(ctx, kind, false)
+                }
+            }
             Action::CaptureTo(n) => {
                 // A shortcut of a folder that was removed does nothing.
                 if let Some(dir) = self.settings.extra_dirs.iter().find(|d| d.id == n).map(|d| d.path.clone()) {
-                    self.start_capture_to(ctx, CaptureKind::Area, Some(dir));
+                    if self.switch_choosing(ctx, a) {
+                        self.start_capture_to(ctx, n, Some(dir));
+                    }
                 }
             }
             Action::Record => {
-                if self.recording.is_none() {
+                if self.recording.is_none() && self.switch_choosing(ctx, a) {
                     self.start_capture(ctx, CaptureKind::FullScreen, true)
                 }
             }
@@ -226,6 +251,23 @@ impl DyoSnap {
                     r.rec.toggle_pause();
                     r.last_secs = u64::MAX;
                 }
+            }
+        }
+    }
+
+    /// A capture or recording action while a capture is still being chosen: the same action
+    /// cancels it, another one cancels it and starts. Returns whether the action goes on
+    /// to start something.
+    fn switch_choosing(&mut self, ctx: &egui::Context, a: Action) -> bool {
+        match capture_switch(self.choosing(), a) {
+            Switch::Start => true,
+            Switch::Cancel => {
+                self.cancel_choosing(ctx, false);
+                false
+            }
+            Switch::Replace => {
+                self.cancel_choosing(ctx, true);
+                true
             }
         }
     }
@@ -357,7 +399,7 @@ impl DyoSnap {
 
         if let Some(job) = &self.job {
             if let Ok(res) = job.rx.try_recv() {
-                let (kind, for_record) = (job.kind, job.for_record);
+                let (kind, for_record, job_action) = (job.kind, job.for_record, job.action);
                 let job_target = job.target.clone();
                 let select_shot = job.select_shot;
                 let job_windows = job.windows.lock().map(|w| w.clone()).unwrap_or_default();
@@ -378,6 +420,7 @@ impl DyoSnap {
                             self.toast_no_screen();
                         } else {
                             self.select = Some(Select {
+                                action: job_action,
                                 screens,
                                 rect: None,
                                 before_full: None,
@@ -410,6 +453,7 @@ impl DyoSnap {
                             let b = screens[si].bounds;
                             let rect = Rect::from_center_size(b.center(), b.size() * 0.75);
                             self.select = Some(Select {
+                                action: job_action,
                                 screens,
                                 rect: Some(rect),
                                 before_full: None,
@@ -554,5 +598,16 @@ mod tests {
         // The tray's "folder" item still opens the save folder.
         assert_eq!(action_from_id("folder", 5), Some(Action::OpenFolder));
         assert_eq!(action_from_id("area", 5), Some(Action::Capture(CaptureKind::Area)));
+    }
+
+    #[test]
+    fn a_new_action_replaces_what_is_chosen_and_the_same_one_cancels_it() {
+        let area = Action::Capture(CaptureKind::Area);
+        assert_eq!(capture_switch(None, area), Switch::Start);
+        assert_eq!(capture_switch(Some(area), area), Switch::Cancel);
+        assert_eq!(capture_switch(Some(area), Action::Record), Switch::Replace);
+        assert_eq!(capture_switch(Some(Action::Record), area), Switch::Replace);
+        assert_eq!(capture_switch(Some(Action::CaptureTo(1)), Action::CaptureTo(2)), Switch::Replace);
+        assert_eq!(capture_switch(Some(Action::Capture(CaptureKind::Timed(3))), Action::Capture(CaptureKind::Timed(5))), Switch::Replace);
     }
 }
