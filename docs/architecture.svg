@@ -12,7 +12,7 @@
 <text x="40" y="1205" font-size="13" fill="#555">[Container: desktop app, one process. Rust, egui/eframe + OpenGL]</text>
 <rect x="80" y="220" width="580" height="125" rx="10" fill="#85BBF0" stroke="#5D82A8" stroke-width="1.5"/>
 <text x="370.0" y="248" text-anchor="middle" font-size="17" font-weight="700" fill="#0B2545">Main window &amp; control</text>
-<text x="370.0" y="268" text-anchor="middle" font-size="12.5" fill="#0B2545" opacity="0.85">[Component: egui · app/mod.rs, events.rs, views.rs]</text>
+<text x="370.0" y="268" text-anchor="middle" font-size="12.5" fill="#0B2545" opacity="0.85">[Component: egui · app/ (mod, frame, window, events, views)]</text>
 <text x="370.0" y="292" text-anchor="middle" font-size="13.5" fill="#0B2545">Main window, start page, bars. Handles the tray menu and</text>
 <text x="370.0" y="311" text-anchor="middle" font-size="13.5" fill="#0B2545">global shortcuts, runs the screenshot and recording flow.</text>
 <rect x="760" y="220" width="300" height="125" rx="10" fill="#85BBF0" stroke="#5D82A8" stroke-width="1.5"/>
@@ -33,7 +33,7 @@
 <text x="382" y="166" text-anchor="start" font-size="12.5" fill="#333">uses tray, shortcuts, windows</text>
 <rect x="80" y="435" width="285" height="130" rx="10" fill="#85BBF0" stroke="#5D82A8" stroke-width="1.5"/>
 <text x="222.5" y="463" text-anchor="middle" font-size="17" font-weight="700" fill="#0B2545">Capture flow</text>
-<text x="222.5" y="483" text-anchor="middle" font-size="12.5" fill="#0B2545" opacity="0.85">[Component: egui · app/capture.rs]</text>
+<text x="222.5" y="483" text-anchor="middle" font-size="12.5" fill="#0B2545" opacity="0.85">[Component: egui · app/capture/]</text>
 <text x="222.5" y="507" text-anchor="middle" font-size="13.5" fill="#0B2545">Screenshot jobs, choosing the</text>
 <text x="222.5" y="526" text-anchor="middle" font-size="13.5" fill="#0B2545">record area, overlays while</text>
 <text x="222.5" y="545" text-anchor="middle" font-size="13.5" fill="#0B2545">recording.</text>

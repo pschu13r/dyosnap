@@ -1,6 +1,6 @@
 //! Where the recording control bar (timer, Pause, Stop, Cancel) goes, and how it moves and
 //! collapses. Pure geometry in global points, shared by the egui bar on macOS
-//! (app/capture.rs) and the layer surface on Linux (platform/linux/rec_frame.rs).
+//! (app/capture/rec_session.rs) and the layer surface on Linux (platform/linux/rec_frame.rs).
 //!
 //! The bar is recorded in a full-screen recording, so it can be moved, and it collapses to
 //! a small pill (red dot and time) that expands again with a click.

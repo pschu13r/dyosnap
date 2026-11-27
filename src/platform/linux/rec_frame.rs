@@ -48,7 +48,7 @@ const GAP: f32 = 2.0;
 /// Red while recording, orange while paused (ARGB).
 const RED: u32 = 0xFF_E2_26_26;
 const ORANGE: u32 = 0xFF_FF_AA_00;
-/// The control bar, in points, as on macOS (app/capture.rs `recording_overlays`).
+/// The control bar, in points, as on macOS (app/capture/rec_session.rs `recording_overlays`).
 const BTN_H: f32 = 26.0;
 const BTN_PAUSE_W: f32 = 36.0;
 const BTN_STOP_W: f32 = 62.0;

@@ -60,7 +60,7 @@ P.append('<text x="40" y="1185" font-size="17" font-weight="700" fill="#333">Dyo
 P.append('<text x="40" y="1205" font-size="13" fill="#555">[Container: desktop app, one process. Rust, egui/eframe + OpenGL]</text>')
 
 # Row 1
-box(80, 220, 580, 125, "Main window & control", "Component: egui · app/mod.rs, events.rs, views.rs",
+box(80, 220, 580, 125, "Main window & control", "Component: egui · app/ (mod, frame, window, events, views)",
     ["Main window, start page, bars. Handles the tray menu and",
      "global shortcuts, runs the screenshot and recording flow."])
 box(760, 220, 300, 125, "Settings window", "Component: egui · prefs.rs, about.rs",
@@ -76,7 +76,7 @@ line([(370, 142), (370, 218)], "uses tray, shortcuts, windows", 382, 166, anchor
 xs = [80, 395, 710, 1025, 1340]
 w2 = 285
 c = [x + w2 / 2 for x in xs]
-box(xs[0], 435, w2, 130, "Capture flow", "Component: egui · app/capture.rs",
+box(xs[0], 435, w2, 130, "Capture flow", "Component: egui · app/capture/",
     ["Screenshot jobs, choosing the", "record area, overlays while", "recording."])
 box(xs[1], 435, w2, 130, "Files", "Component: Rust · app/files.rs",
     ["Opens, saves and copies", "pictures and videos (local,", "no network)."])
