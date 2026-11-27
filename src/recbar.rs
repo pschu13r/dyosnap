@@ -20,10 +20,11 @@ pub const COLLAPSE_GAP: f32 = 6.0;
 pub const AUTO_COLLAPSE_SECS: u64 = 3;
 /// Distance to the screen edge the bar keeps.
 const EDGE: f32 = 4.0;
-/// Where the bar of a full-screen recording sits: this far from the right edge, and
-/// this far above the bottom edge (above the Dock or a panel).
-const FULL_INSET_X: f32 = 16.0;
-const FULL_INSET_Y: f32 = 70.0;
+/// Where the bar of a full-screen recording sits: this far from the right and bottom edges
+/// of the usable part of the screen (without the Dock, the menu bar or a panel).
+const FULL_INSET: f32 = 16.0;
+/// Where the system does not say how much a panel takes: room left for it at the bottom.
+const PANEL_GUESS: f32 = 54.0;
 /// A press that moves more than this many points is a drag, not a click.
 const DRAG_MIN: f32 = 3.0;
 
@@ -50,22 +51,29 @@ pub fn clamp_to_screen(r: Rect, screen: Rect) -> Rect {
     Rect::from_min_size(pos2(x, y), r.size())
 }
 
+/// The usable part of `screen` where the system does not tell (Linux): all but a strip at
+/// the bottom for a panel or dock.
+pub fn usable_guess(screen: Rect) -> Rect {
+    Rect::from_min_max(screen.min, pos2(screen.max.x, screen.max.y - PANEL_GUESS))
+}
+
 /// Where the bar starts: at the bottom right for a full-screen recording; else below the
-/// area, or above it, or at the bottom of the screen.
-pub fn initial_rect(area: Rect, screen: Rect, can_pause: bool) -> Rect {
+/// area, or above it, or at the bottom of the screen. `usable`: the part of the screen
+/// that no Dock, menu bar or panel covers.
+pub fn initial_rect(area: Rect, screen: Rect, usable: Rect, can_pause: bool) -> Rect {
     let size = bar_size(can_pause);
+    let corner = pos2(usable.max.x - FULL_INSET - size.x, usable.max.y - FULL_INSET - size.y);
     if is_full_screen(area, screen) {
-        let pos = pos2(screen.max.x - FULL_INSET_X - size.x, screen.max.y - FULL_INSET_Y - size.y);
-        return clamp_to_screen(Rect::from_min_size(pos, size), screen);
+        return clamp_to_screen(Rect::from_min_size(corner, size), usable);
     }
     let mut pos = pos2(area.center().x - size.x / 2.0, area.max.y + 12.0);
-    if pos.y + size.y > screen.max.y - EDGE {
+    if pos.y + size.y > usable.max.y - EDGE {
         pos.y = area.min.y - size.y - 12.0;
-        if pos.y < screen.min.y + 30.0 {
-            pos.y = screen.max.y - size.y - FULL_INSET_Y;
+        if pos.y < usable.min.y + 30.0 {
+            pos.y = corner.y;
         }
     }
-    clamp_to_screen(Rect::from_min_size(pos, size), screen)
+    clamp_to_screen(Rect::from_min_size(pos, size), usable)
 }
 
 /// The bar `cur` with another size (collapsing or expanding). The edge nearest to the
@@ -104,20 +112,20 @@ mod tests {
     #[test]
     fn bar_goes_below_above_or_at_the_bottom() {
         let mid = Rect::from_min_size(pos2(500.0, 200.0), vec2(400.0, 300.0));
-        let b = initial_rect(mid, screen(), true);
+        let b = initial_rect(mid, screen(), usable_guess(screen()), true);
         assert_eq!(b.min.y, 512.0);
         assert!(!b.intersects(mid));
         // No room below: above.
         let low = Rect::from_min_size(pos2(500.0, 700.0), vec2(400.0, 360.0));
-        assert!(initial_rect(low, screen(), true).max.y <= low.min.y);
+        assert!(initial_rect(low, screen(), usable_guess(screen()), true).max.y <= low.min.y);
         // Nearly the whole screen: at the bottom, on screen.
         let tall = Rect::from_min_size(pos2(500.0, 10.0), vec2(400.0, 1060.0));
-        assert!(screen().contains_rect(initial_rect(tall, screen(), false)));
+        assert!(screen().contains_rect(initial_rect(tall, screen(), usable_guess(screen()), false)));
     }
 
     #[test]
     fn full_screen_bar_sits_at_the_bottom_right() {
-        let b = initial_rect(screen(), screen(), true);
+        let b = initial_rect(screen(), screen(), usable_guess(screen()), true);
         assert_eq!(b.max.x, 1920.0 - 16.0);
         assert_eq!(b.max.y, 1080.0 - 70.0);
         assert!(is_full_screen(screen(), screen()));
@@ -125,8 +133,17 @@ mod tests {
     }
 
     #[test]
+    fn full_screen_bar_stays_clear_of_a_dock_on_the_right() {
+        // Menu bar at the top, Dock of 70 points on the right.
+        let usable = Rect::from_min_max(pos2(0.0, 25.0), pos2(1850.0, 1080.0));
+        let b = initial_rect(screen(), screen(), usable, true);
+        assert_eq!(b.max.x, 1850.0 - 16.0);
+        assert_eq!(b.max.y, 1080.0 - 16.0);
+    }
+
+    #[test]
     fn pill_keeps_the_edge_nearest_to_the_screen_edge() {
-        let right = initial_rect(screen(), screen(), true);
+        let right = initial_rect(screen(), screen(), usable_guess(screen()), true);
         let pill = resized(right, PILL, screen());
         assert_eq!(pill.max.x, right.max.x);
         assert_eq!(pill.center().y, right.center().y);

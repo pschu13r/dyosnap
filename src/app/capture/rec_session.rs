@@ -48,7 +48,7 @@ impl DyoSnap {
         std::thread::spawn(move || {
             let res = r.rec.finish(dest);
             let _ = tx.send(res);
-            ctx2.request_repaint();
+            crate::wake(&ctx2);
         });
         self.finishing = Some(rx);
     }
@@ -147,7 +147,8 @@ impl DyoSnap {
         // recording). It moves by dragging its left part and collapses to a pill.
         let r = self.recording.as_mut()?;
         if r.bar_pos.is_none() {
-            let at = recbar::initial_rect(rect, screen, can_pause);
+            // Clear of the Dock and the menu bar, wherever they are.
+            let at = recbar::initial_rect(rect, screen, platform::visible_frame(screen), can_pause);
             r.bar_pos = Some(at.min);
             r.bar_seen = Some(at);
         }
@@ -184,6 +185,8 @@ impl DyoSnap {
         let dot_color = if paused { Color32::from_rgb(255, 170, 0) } else { RED };
         let (act, seen, toggle) = crate::show_immediate(ctx, ViewportId::from_hash_of("dyosnap_recbar"), builder, |ui, _| {
             let ctx = ui.ctx().clone();
+            // Above the Dock, also when it is dragged there.
+            platform::raise_recbar("Recording");
             let mut act = None;
             let mut toggle = false;
             // Dragging the window is left to the system; it starts on the first movement.

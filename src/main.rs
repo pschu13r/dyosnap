@@ -252,9 +252,41 @@ fn install_warning_log() {
     }
 }
 
+/// macOS: the main window, so other threads can wake it (see `wake`).
+#[cfg(target_os = "macos")]
+static ROOT_WINDOW: std::sync::Mutex<Option<std::sync::Arc<winit::window::Window>>> = std::sync::Mutex::new(None);
+
+/// macOS: remembers the main window for `wake`. Cheap; called every frame.
+#[cfg(target_os = "macos")]
+pub fn remember_root_window(w: &std::sync::Arc<winit::window::Window>) {
+    if let Ok(mut r) = ROOT_WINDOW.lock() && !r.as_ref().is_some_and(|o| std::sync::Arc::ptr_eq(o, w)) {
+        *r = Some(w.clone());
+    }
+}
+
+/// Wakes the app from any thread (a shortcut, a menu click, a finished job): it asks for a
+/// repaint. eframe delays a repaint of a hidden window by 100 ms (see
+/// `INVISIBLE_WINDOW_REPAINT_INTERVAL` in eframe's run.rs), which would be added to every
+/// capture started from the menu bar. On macOS the window is asked to redraw as well: that
+/// event is not delayed.
+pub fn wake(ctx: &egui::Context) {
+    ctx.request_repaint();
+    // From another thread, `request_redraw` blocks until the main thread has run it. So the
+    // caller must not hold a lock the main thread may wait for, and the main thread must
+    // never wait for a thread that may call `wake`: both would hang. ROOT_WINDOW itself is
+    // let go before the call for the same reason.
+    #[cfg(target_os = "macos")]
+    if let Some(w) = ROOT_WINDOW.lock().ok().and_then(|r| r.clone()) {
+        w.request_redraw();
+    }
+}
+
 thread_local! {
     static EXPECTED_PANIC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
+
+/// How many frames of extra windows were lost in a row (see show_immediate).
+static FRAMES_LOST: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 static UPLOADS_LOST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -289,12 +321,21 @@ pub fn show_immediate<T: Default>(
     }));
     EXPECTED_PANIC.with(|c| c.set(false));
     match r {
-        Ok(v) => v,
+        Ok(v) => {
+            FRAMES_LOST.store(0, std::sync::atomic::Ordering::Relaxed);
+            v
+        }
         Err(_) => {
             if drawn {
                 UPLOADS_LOST.store(true, std::sync::atomic::Ordering::SeqCst);
             }
-            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+            // The window is made right after this frame, so the next one can draw it: ask for
+            // it at once. A window that keeps failing is asked again after 16 ms, not in a loop.
+            if FRAMES_LOST.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 3 {
+                wake(ctx);
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_millis(16));
+            }
             T::default()
         }
     }

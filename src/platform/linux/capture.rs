@@ -32,6 +32,17 @@ pub fn reset_cursor() {}
 /// macOS only: Wayland puts a full-screen window above the panels itself.
 pub fn raise_overlay(_title: &str) {}
 
+/// macOS only: the overlay is never open without its picture on Linux.
+pub fn set_overlay_visible(_title: &str, _visible: bool) {}
+
+/// macOS only; on Linux the recording bar is a layer surface (see rec_frame.rs).
+pub fn raise_recbar(_title: &str) {}
+
+/// macOS only: the part of the screen the Dock and the menu bar leave free.
+pub fn visible_frame(screen: egui::Rect) -> egui::Rect {
+    crate::recbar::usable_guess(screen)
+}
+
 /// macOS only: Linux always takes a picture of every screen (see `capture_all_screens`).
 pub fn capture_screen(_index: usize) -> Vec<PathBuf> {
     super::capture_all_screens(super::displays().len(), false)

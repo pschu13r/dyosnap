@@ -285,11 +285,14 @@ impl DyoSnap {
         let Some(ed) = self.ed.as_mut() else { return };
         ed.commit_text();
         let img = ed.flatten(&font);
-        // The path needs a saved file; save first (the editor stays open).
+        // The path needs a saved file; save first (without closing: that comes below).
         let saved = if self.settings.copy_path { self.save_picture_ex(false, false) } else { None };
         let tmp = platform::temp_file("copy", "png");
         if img.save(&tmp).is_ok() && self.copy_file_to_clipboard(&tmp, saved.as_deref()) {
             self.toast("Copied to clipboard", saved);
+            // Like Save: copying finishes the picture, it goes on in another app.
+            self.ed = None;
+            self.close_after_save = true;
         } else {
             self.toast("Could not copy the picture", None);
         }
@@ -307,12 +310,16 @@ impl DyoSnap {
         }
     }
 
+    /// Save or Copy in the video editor. Like in the picture editor, both finish the video:
+    /// the editor closes once the file is written (see `close_video_after_save`).
     pub(super) fn save_video(&mut self, then_copy: bool) {
         let dir = self.settings.save_dir.clone();
-        self.save_video_to(then_copy, dir);
+        self.save_video_to(then_copy, dir, true);
     }
 
-    pub(super) fn save_video_to(&mut self, then_copy: bool, dir: PathBuf) {
+    /// `close`: the person clicked Save or Copy, so the editor closes when it worked. Not for
+    /// the automatic save into Movies after a recording.
+    pub(super) fn save_video_to(&mut self, then_copy: bool, dir: PathBuf, close: bool) {
         let Some(v) = &mut self.video else { return };
         if self.video_saving.is_some() {
             return;
@@ -324,9 +331,15 @@ impl DyoSnap {
         if !v.is_trimmed() && dir == self.settings.save_dir
             && let Some(saved) = v.saved.clone().filter(|p| p.extension().is_some_and(|e| e == ext.as_str()))
         {
+            // Saved already: nothing to export, just copy and close.
             if then_copy {
                 platform::copy_file_ref(&saved);
                 self.toast("Copied the video file", Some(saved));
+            } else if close {
+                platform::notify("Saved", &short_path(&saved));
+            }
+            if close {
+                self.close_video();
             }
             return;
         }
@@ -361,5 +374,17 @@ impl DyoSnap {
         });
         self.video_saving = Some(rx);
         self.copy_after_save = then_copy;
+        // Only this video closes: the person may have opened something else meanwhile.
+        self.close_video_after_save = close.then(|| v.path.clone());
+    }
+
+    /// Closes the video editor and puts the window away, as ⌘W does.
+    pub(super) fn close_video(&mut self) {
+        if let Some(v) = &mut self.video {
+            v.stop();
+        }
+        self.video = None;
+        self.recent_dirty = true;
+        self.close_after_save = true;
     }
 }

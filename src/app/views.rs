@@ -784,8 +784,26 @@ impl DyoSnap {
         }
     }
 
+    /// ⌘S and ⌘C in the video editor, as the Save and Copy buttons (and their tooltips) say.
+    /// ⌘C in the file name copies the text instead.
+    fn video_shortcuts(&mut self, ctx: &egui::Context) {
+        if self.video.is_none() {
+            return;
+        }
+        let typing = ctx.egui_wants_keyboard_input();
+        let (save, copy) = ctx.input_mut(|i| {
+            (i.consume_key(Modifiers::COMMAND, Key::S), !typing && i.events.iter().any(|e| matches!(e, egui::Event::Copy)))
+        });
+        if save {
+            self.save_video(false);
+        } else if copy {
+            self.save_video(true);
+        }
+    }
+
     pub(super) fn editor_shortcuts(&mut self, ctx: &egui::Context) {
         if self.ed.is_none() {
+            self.video_shortcuts(ctx);
             return;
         }
         let editing_text = self.ed.as_ref().is_some_and(|e| e.is_editing_text());

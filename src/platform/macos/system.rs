@@ -351,6 +351,61 @@ pub fn raise_overlay(title: &str) {
     }
 }
 
+/// Puts the recording bar (the window with this title) above the Dock and the menu bar, on
+/// every space and over full-screen apps: at the "floating" level the Dock covers it. Only a
+/// window not raised yet is changed, so it can run every frame.
+pub fn raise_recbar(title: &str) {
+    // NSPopUpMenuWindowLevel; the Dock is at 20, the menu bar at 24.
+    const LEVEL: isize = 101;
+    // canJoinAllSpaces | stationary | fullScreenAuxiliary
+    const BEHAVIOR: usize = (1 << 0) | (1 << 4) | (1 << 8);
+    let Some(cls) = AnyClass::get(c"NSApplication") else { return };
+    unsafe {
+        let Some(app): Option<Retained<AnyObject>> = msg_send![cls, sharedApplication] else { return };
+        let Some(windows): Option<Retained<AnyObject>> = msg_send![&*app, windows] else { return };
+        let n: usize = msg_send![&*windows, count];
+        for i in 0..n {
+            let Some(w): Option<Retained<AnyObject>> = msg_send![&*windows, objectAtIndex: i] else { continue };
+            let Some(t): Option<Retained<AnyObject>> = msg_send![&*w, title] else { continue };
+            let s: *const std::ffi::c_char = msg_send![&*t, UTF8String];
+            if s.is_null() || std::ffi::CStr::from_ptr(s).to_string_lossy() != title {
+                continue;
+            }
+            let level: isize = msg_send![&*w, level];
+            if level >= LEVEL {
+                continue;
+            }
+            let _: () = msg_send![&*w, setLevel: LEVEL];
+            let _: () = msg_send![&*w, setCollectionBehavior: BEHAVIOR];
+        }
+    }
+}
+
+/// Makes the windows with this title invisible (`false`) or visible (`true`): the area overlay
+/// opens before its picture is there and must show the live screen until then. Windows that
+/// are as asked already are left alone, so it can run every frame.
+pub fn set_overlay_visible(title: &str, visible: bool) {
+    let alpha: f64 = if visible { 1.0 } else { 0.0 };
+    let Some(cls) = AnyClass::get(c"NSApplication") else { return };
+    unsafe {
+        let Some(app): Option<Retained<AnyObject>> = msg_send![cls, sharedApplication] else { return };
+        let Some(windows): Option<Retained<AnyObject>> = msg_send![&*app, windows] else { return };
+        let n: usize = msg_send![&*windows, count];
+        for i in 0..n {
+            let Some(w): Option<Retained<AnyObject>> = msg_send![&*windows, objectAtIndex: i] else { continue };
+            let Some(t): Option<Retained<AnyObject>> = msg_send![&*w, title] else { continue };
+            let s: *const std::ffi::c_char = msg_send![&*t, UTF8String];
+            if s.is_null() || std::ffi::CStr::from_ptr(s).to_string_lossy() != title {
+                continue;
+            }
+            let now: f64 = msg_send![&*w, alphaValue];
+            if (now - alpha).abs() > 0.01 {
+                let _: () = msg_send![&*w, setAlphaValue: alpha];
+            }
+        }
+    }
+}
+
 /// Whether a window with exactly this title is on screen. The main window can be shown
 /// without the app knowing (macOS restores it); this asks AppKit itself.
 pub fn window_visible(title: &str) -> bool {

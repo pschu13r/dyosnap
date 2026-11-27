@@ -122,7 +122,7 @@ impl DyoSnap {
         let settings = &mut self.settings;
         let devices = &self.devices;
         let has_ff = self.ffmpeg.is_some();
-        let Select { screens, rect, before_full, drag, settings_open, focused, countdown, shot, shown, instant, placed, windows, started, logged, .. } = sel;
+        let Select { screens, rect, before_full, drag, settings_open, focused, countdown, shot, shown, instant, placed, windows, started, logged, painted, .. } = sel;
         let (instant, placed) = (*instant, *placed);
         let windows: &[Rect] = windows;
         let shown = *shown;
@@ -192,6 +192,17 @@ impl DyoSnap {
                     any_focus_sent = true;
                     ctx.send_viewport_cmd(ViewportCommand::Focus);
                 }
+                // macOS: the window opens while the picture is still being taken. It draws nothing
+                // until then (the live screen shows through, no gray flash), the mouse does
+                // nothing, and Esc cancels.
+                platform::set_overlay_visible(OVERLAY_TITLE, scr.img.is_some());
+                if scr.img.is_none() {
+                    if ctx.input(|i| i.key_pressed(Key::Escape) || i.viewport().close_requested()) {
+                        return SelectOut::Cancel;
+                    }
+                    ctx.request_repaint_after(Duration::from_millis(16));
+                    return SelectOut::None;
+                }
                 if let (None, Some(img)) = (&scr.tex, &scr.img) {
                     scr.tex = Some(ctx.load_texture(format!("select_snapshot_{si}"), img.clone(), loupe_options()));
                 }
@@ -203,6 +214,10 @@ impl DyoSnap {
                 let screen_rect = scr.bounds.translate(-offset);
                 if let Some(t) = &scr.tex {
                     painter.image(t.id(), screen_rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+                    if !*painted {
+                        *painted = true;
+                        log::info!(target: "dyosnap", "select: frozen picture painted after {} ms", started.elapsed().as_millis());
+                    }
                 } else {
                     painter.rect_filled(full, 0.0, Color32::from_gray(30));
                 }

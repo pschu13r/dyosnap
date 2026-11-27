@@ -102,7 +102,7 @@ impl DyoSnap {
         let ctx = ctx.clone();
         self.hotkeys = platform::Hotkeys::new(std::sync::Arc::new(move |id: String| {
             let _ = tx.send(AppEvent::Hotkey(id));
-            ctx.request_repaint();
+            crate::wake(&ctx);
         }));
         self.register_hotkeys();
     }
@@ -282,7 +282,8 @@ impl DyoSnap {
     /// The main window is hidden since the first start and `visible` stays false, so there
     /// is nothing to restore. The job is None (the overlay is open), so no flag is left.
     fn reuse_picture(&mut self, ctx: &egui::Context, a: Action) -> bool {
-        if !cfg!(target_os = "macos") || self.select.is_none() {
+        // Not while the picture is still being taken: the overlay has nothing to reuse.
+        if !cfg!(target_os = "macos") || self.job.is_some() || self.select.as_ref().is_none_or(|s| s.screens.iter().any(|x| x.img.is_none())) {
             return false;
         }
         // The extra folder of a "capture to" shortcut, if it still exists.
@@ -311,7 +312,7 @@ impl DyoSnap {
             for (i, d) in displays.iter().enumerate() {
                 match have.iter_mut().find(|s| s.as_ref().is_some_and(|s| same(s, d))).and_then(|s| s.take()) {
                     Some(s) => all.push(s),
-                    None => all.extend(self.sel_screens(&platform::capture_screen(i), i)),
+                    None => all.extend(self.sel_screens(decode_screens(platform::capture_screen(i)), i)),
                 }
             }
             all
@@ -359,30 +360,18 @@ impl DyoSnap {
         self.show_window(ctx);
     }
 
-    /// The frozen pictures of a capture job as screens to choose an area on. The files go away.
+    /// The frozen pictures of a capture job as screens to choose an area on.
     /// Picture `i` belongs to screen `first + i` of `displays()`.
-    fn sel_screens(&self, res: &[PathBuf], first: usize) -> Vec<SelScreen> {
+    fn sel_screens(&self, res: Vec<ColorImage>, first: usize) -> Vec<SelScreen> {
         let displays = platform::displays();
         let mut screens = Vec::new();
-        for (i, p) in res.iter().enumerate() {
-            if let Ok(img) = image::open(p) {
-                let rgba = img.to_rgba8();
-                let d = displays.get(first + i).copied().unwrap_or(platform::Display {
-                    bounds: Rect::from_min_size(Pos2::ZERO, self.monitor),
-                    scale: rgba.width() as f32 / self.monitor.x.max(1.0),
-                });
-                log::info!("select area: screen {i} at {:?} scale {} picture {}x{}", d.bounds, d.scale, rgba.width(), rgba.height());
-                screens.push(SelScreen {
-                    bounds: d.bounds,
-                    scale: d.scale,
-                    img: Some(Arc::new(ColorImage::from_rgba_unmultiplied(
-                        [rgba.width() as usize, rgba.height() as usize],
-                        rgba.as_raw(),
-                    ))),
-                    tex: None,
-                });
-            }
-            let _ = std::fs::remove_file(p);
+        for (i, img) in res.into_iter().enumerate() {
+            let d = displays.get(first + i).copied().unwrap_or(platform::Display {
+                bounds: Rect::from_min_size(Pos2::ZERO, self.monitor),
+                scale: img.size[0] as f32 / self.monitor.x.max(1.0),
+            });
+            log::info!("select area: screen {i} at {:?} scale {} picture {}x{}", d.bounds, d.scale, img.size[0], img.size[1]);
+            screens.push(SelScreen { bounds: d.bounds, scale: d.scale, img: Some(Arc::new(img)), tex: None });
         }
         screens
     }
@@ -469,13 +458,45 @@ impl DyoSnap {
             let (kind, for_record, job_action) = (job.kind, job.for_record, job.action);
             let job_target = job.target.clone();
             let select_shot = job.select_shot;
-            let (started, first_screen) = (job.started, job.first_screen);
+            let (started, first_screen, pending) = (job.started, job.first_screen, job.pending);
             let job_windows = job.windows.lock().map(|w| w.clone()).unwrap_or_default();
             self.job = None;
-            match (res.first().cloned(), for_record || select_shot) {
-                (Some(p), false) => self.handle_capture(ctx, p, job_target),
-                (Some(_), true) if select_shot => {
-                    let screens = self.sel_screens(&res, first_screen);
+            if for_record || select_shot {
+                log::info!(target: "dyosnap", "select: job result received after {} ms", started.elapsed().as_millis());
+            }
+            let mut retried = false;
+            let (file, pictures) = match res {
+                JobOut::Retry => {
+                    retried = true;
+                    // The overlay goes away and the next picture waits for it to vanish (see
+                    // `was_visible`), so it can not end up in the picture.
+                    self.cancel_choosing(ctx, true);
+                    self.start_capture_ex(ctx, job_action, kind, for_record, job_target.clone(), false);
+                    (None, Vec::new())
+                }
+                JobOut::Files(files) => (files.first().cloned(), Vec::new()),
+                JobOut::Pictures(pictures) => (None, pictures),
+            };
+            match (file, !pictures.is_empty(), for_record || select_shot) {
+                _ if retried => {}
+                (Some(p), _, false) => self.handle_capture(ctx, p, job_target),
+                (_, true, true) if pending => {
+                    // The overlay is open: it gets the picture.
+                    let fits = self.select.as_ref().is_some_and(|s| s.screens.len() == pictures.len());
+                    if fits && let Some(sel) = self.select.as_mut() {
+                        for (scr, img) in sel.screens.iter_mut().zip(pictures) {
+                            scr.img = Some(Arc::new(img));
+                        }
+                        ctx.send_viewport_cmd(ViewportCommand::RequestPaintWhileHidden);
+                        ctx.request_repaint();
+                    } else {
+                        self.cancel_choosing(ctx, false);
+                        self.show_window(ctx);
+                        self.toast_no_screen();
+                    }
+                }
+                (_, true, true) if select_shot => {
+                    let screens = self.sel_screens(pictures, first_screen);
                     let previous = if kind == CaptureKind::Previous { self.last_area } else { None };
                     // Without choosing: the previous area again, or the whole screen.
                     let instant = match kind {
@@ -496,8 +517,8 @@ impl DyoSnap {
                         ctx.send_viewport_cmd(ViewportCommand::RequestPaintWhileHidden);
                     }
                 }
-                (Some(_), true) => {
-                    let screens = self.sel_screens(&res, 0);
+                (_, true, true) => {
+                    let screens = self.sel_screens(pictures, 0);
                     if screens.is_empty() {
                         self.show_window(ctx);
                         self.perm_prompt = !platform::screenshot_allowed();
@@ -507,12 +528,16 @@ impl DyoSnap {
                         ctx.send_viewport_cmd(ViewportCommand::RequestPaintWhileHidden);
                     }
                 }
-                (None, true) => {
+                (_, false, true) => {
+                    // No picture: also close an overlay that waited for it.
+                    if pending {
+                        self.cancel_choosing(ctx, false);
+                    }
                     self.show_window(ctx);
                     self.perm_prompt = !platform::screenshot_allowed();
                     self.toast_no_screen();
                 }
-                (None, false) => {
+                (_, _, false) => {
                     let asks = matches!(kind, CaptureKind::Area | CaptureKind::Previous | CaptureKind::Window);
                     if !asks && !platform::screenshot_allowed() {
                         self.perm_prompt = true;
@@ -535,7 +560,7 @@ impl DyoSnap {
                         let movies = dirs::video_dir()
                             .or_else(|| dirs::home_dir().map(|h| h.join("Movies")))
                             .unwrap_or_else(|| self.settings.save_dir.clone());
-                        self.save_video_to(false, movies);
+                        self.save_video_to(false, movies, false);
                     }
                 }
                 Err(e) => self.toast(e, None),
@@ -545,20 +570,30 @@ impl DyoSnap {
 
         if let Some(rx) = &self.video_saving && let Ok(res) = rx.try_recv() {
             self.video_saving = None;
+            let close_src = self.close_video_after_save.take();
             match res {
                 Ok(p) => {
                     if let Some(v) = &mut self.video {
                         v.saved = Some(p.clone());
                     }
+                    // Save or Copy was clicked and the same video is still open: it is done.
+                    let close = self.ed.is_none() && close_src.is_some_and(|src| self.video.as_ref().is_some_and(|v| v.path == src));
                     if self.copy_after_save {
                         platform::copy_file_ref(&p);
                         self.toast("Saved and copied the video file", Some(p));
                     } else {
+                        if close {
+                            platform::notify("Saved", &short_path(&p));
+                        }
                         self.toast(format!("Saved to {}", short_path(&p)), Some(p));
                     }
                     self.recent_dirty = true;
-            self.tray_menu_dirty = true;
+                    self.tray_menu_dirty = true;
+                    if close {
+                        self.close_video();
+                    }
                 }
+                // The editor stays open, so nothing is lost.
                 Err(e) => self.toast(e, None),
             }
         }

@@ -564,7 +564,7 @@ fn run(
         bytes += (s.size.0 * s.size.1 * 4) as usize;
         st.frame.push(s);
     }
-    let br = recbar::initial_rect(area, *screen, can_pause);
+    let br = recbar::initial_rect(area, *screen, recbar::usable_guess(*screen), can_pause);
     let bar_surface = place(br, true);
     bytes += (bar_surface.size.0 * bar_surface.size.1 * 4) as usize * (*scale as usize).pow(2);
     st.bar = Some(Bar {

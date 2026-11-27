@@ -18,6 +18,46 @@ static JOB_GEN: AtomicU64 = AtomicU64::new(0);
 /// the arrow can come back (see `platform::reset_cursor`).
 pub(super) static CURSOR_RESET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// What a capture job sends back.
+pub(super) enum JobOut {
+    /// Image files: one picture, or none if it was cancelled or failed.
+    Files(Vec<PathBuf>),
+    /// The frozen pictures to choose an area on, one per screen, ready to show.
+    Pictures(Vec<ColorImage>),
+    /// macOS: ScreenCaptureKit failed. The overlay that waited for the picture goes, and the
+    /// capture runs again with `screencapture`.
+    Retry,
+}
+
+/// Loads the files of `screencapture` as pictures to choose an area on; they go away.
+/// Runs in the job thread: decoding 24 MB takes a while.
+pub(super) fn decode_screens(files: Vec<PathBuf>) -> Vec<ColorImage> {
+    let t0 = Instant::now();
+    let pictures: Vec<ColorImage> = files
+        .iter()
+        .filter_map(|p| {
+            let rgba = image::open(p).ok()?.to_rgba8();
+            Some(ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_raw()))
+        })
+        .collect();
+    for p in &files {
+        let _ = std::fs::remove_file(p);
+    }
+    log::info!(target: "dyosnap", "select: {} picture(s) decoded in {} ms", pictures.len(), t0.elapsed().as_millis());
+    pictures
+}
+
+/// macOS: the pictures of the screens `indices` from ScreenCaptureKit, in this process.
+#[cfg(target_os = "macos")]
+fn sck_pictures(indices: &[usize]) -> Result<Vec<ColorImage>, String> {
+    platform::capture_images(indices)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn sck_pictures(_indices: &[usize]) -> Result<Vec<ColorImage>, String> {
+    Err("not available".to_string())
+}
+
 /// Pixels per point of the screen under the mouse, where a capture just ended.
 /// Wayland gives no mouse position; there it is the first screen.
 pub(super) fn capture_scale() -> Option<f32> {
@@ -29,12 +69,12 @@ pub(super) fn capture_scale() -> Option<f32> {
 impl DyoSnap {
     pub(super) fn start_capture(&mut self, ctx: &egui::Context, kind: CaptureKind, for_record: bool) {
         let action = if for_record { Action::Record } else { Action::Capture(kind) };
-        self.start_capture_ex(ctx, action, kind, for_record, None);
+        self.start_capture_ex(ctx, action, kind, for_record, None, true);
     }
 
     /// A screenshot that goes into the extra folder `n` (see `handle_capture`).
     pub(super) fn start_capture_to(&mut self, ctx: &egui::Context, n: u32, target: Option<PathBuf>) {
-        self.start_capture_ex(ctx, Action::CaptureTo(n), CaptureKind::Area, false, target);
+        self.start_capture_ex(ctx, Action::CaptureTo(n), CaptureKind::Area, false, target, true);
     }
 
     /// What the person is choosing right now: a capture that waits for the area or the
@@ -85,7 +125,9 @@ impl DyoSnap {
         }
     }
 
-    fn start_capture_ex(&mut self, ctx: &egui::Context, action: Action, kind: CaptureKind, for_record: bool, target: Option<PathBuf>) {
+    /// `use_sck`: macOS may take the picture in this process (see `Job::pending`); false after
+    /// that failed.
+    pub(super) fn start_capture_ex(&mut self, ctx: &egui::Context, action: Action, kind: CaptureKind, for_record: bool, target: Option<PathBuf>, use_sck: bool) {
         if self.busy() {
             return;
         }
@@ -130,11 +172,23 @@ impl DyoSnap {
             && !for_record
             && (kind == CaptureKind::Area || (kind == CaptureKind::Previous && !platform::last_area_known()));
         let select_shot = linux_shot || mac_shot;
+        let displays = platform::displays();
         let first_screen = if mac_shot {
-            let displays = platform::displays();
             platform::mouse_position().map_or(0, |m| platform::display_index_at(&displays, m))
         } else {
             0
+        };
+        // macOS: the picture comes from ScreenCaptureKit, which leaves DyoSnap's own windows out
+        // of it: no wait for them to vanish, and the overlay can open while the picture is taken.
+        let sck = cfg!(target_os = "macos") && use_sck && (mac_shot || for_record) && !displays.is_empty();
+        let indices: Vec<usize> = if mac_shot { vec![first_screen] } else { (0..displays.len()).collect() };
+        let screens: Vec<SelScreen> = match sck {
+            true => indices
+                .iter()
+                .filter_map(|&i| displays.get(i))
+                .map(|d| SelScreen { bounds: d.bounds, scale: d.scale, img: None, tex: None })
+                .collect(),
+            false => Vec::new(),
         };
         let windows = Arc::new(Mutex::new(Vec::new()));
         let windows2 = windows.clone();
@@ -152,26 +206,42 @@ impl DyoSnap {
             // A cancelled job (see `cancel_choosing`) has no receiver. Its files go away, and
             // so does a screen share it may have started, unless a newer job has begun since:
             // that one ends the share itself.
-            let send = move |r: Vec<PathBuf>| {
+            let send = move |r: JobOut| {
                 if let Err(e) = tx.send(r) {
-                    for p in e.0 {
-                        let _ = std::fs::remove_file(p);
+                    if let JobOut::Files(files) = e.0 {
+                        for p in files {
+                            let _ = std::fs::remove_file(p);
+                        }
                     }
                     if JOB_GEN.load(Ordering::SeqCst) == generation {
                         platform::end_screen_session();
                     }
                 }
                 CURSOR_RESET.store(true, Ordering::SeqCst);
-                ctx2.request_repaint();
+                crate::wake(&ctx2);
             };
-            if was_visible {
+            // ScreenCaptureKit leaves our windows out of the picture: nothing to wait for.
+            if was_visible && !sck {
                 std::thread::sleep(Duration::from_millis(350));
             }
             if let (true, CaptureKind::Timed(s)) = (select_shot, kind) {
                 std::thread::sleep(Duration::from_secs(s as u64));
             }
             if stop.load(Ordering::SeqCst) {
-                return send(Vec::new());
+                return send(JobOut::Files(Vec::new()));
+            }
+            if sck {
+                let t0 = Instant::now();
+                return match sck_pictures(&indices) {
+                    Ok(pictures) => {
+                        log::info!(target: "dyosnap", "select: ScreenCaptureKit picture(s) ready in {} ms", t0.elapsed().as_millis());
+                        send(JobOut::Pictures(pictures));
+                    }
+                    Err(e) => {
+                        log::warn!(target: "dyosnap", "select: ScreenCaptureKit failed ({e}); using screencapture");
+                        send(JobOut::Retry);
+                    }
+                };
             }
             // Before the picture: DyoSnap's own window is not open yet.
             #[cfg(target_os = "linux")]
@@ -179,19 +249,40 @@ impl DyoSnap {
                 *w = platform::window_rects();
             }
             let _ = &windows2;
+            let t0 = Instant::now();
             let r = if mac_shot {
-                platform::capture_screen(first_screen)
+                let files = platform::capture_screen(first_screen);
+                log::info!(target: "dyosnap", "select: screencapture took {} ms", t0.elapsed().as_millis());
+                JobOut::Pictures(decode_screens(files))
             } else if for_record || select_shot {
                 // A frozen picture of every screen to choose the area on. Area screenshots
                 // leave the mouse pointer out, as on macOS; full-screen ones follow the setting.
                 let choosing = select_shot && matches!(kind, CaptureKind::Area | CaptureKind::Previous | CaptureKind::Window);
-                platform::capture_all_screens(platform::displays().len(), cursor && !choosing)
+                let files = platform::capture_all_screens(indices.len(), cursor && !choosing);
+                log::info!(target: "dyosnap", "select: screencapture took {} ms", t0.elapsed().as_millis());
+                JobOut::Pictures(decode_screens(files))
             } else {
-                platform::run_capture(kind, sound).into_iter().collect()
+                JobOut::Files(platform::run_capture(kind, sound).into_iter().collect())
             };
             send(r);
         });
-        self.job = Some(Job { action, cancelled, rx, kind, for_record, select_shot, target, windows, started, first_screen });
+        // macOS: the overlay opens now, on the live screen, while the picture is taken: the
+        // windows and their graphics are made meanwhile. It shows nothing until the picture is
+        // there (see `select_overlay`).
+        if sck {
+            let sel = if for_record {
+                Select::for_record(action, screens, started)
+            } else {
+                let mut sel = Select::new(action, screens, None, started);
+                sel.shot = true;
+                sel.target = target.clone();
+                sel
+            };
+            self.select = Some(sel);
+            ctx.send_viewport_cmd(ViewportCommand::RequestPaintWhileHidden);
+            crate::wake(ctx);
+        }
+        self.job = Some(Job { action, cancelled, rx, kind, for_record, select_shot, target, windows, started, first_screen, pending: sck });
     }
 
     /// A new picture. `target`: an extra folder to save it into (and copy it), whatever

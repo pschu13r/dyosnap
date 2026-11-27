@@ -23,6 +23,10 @@ impl eframe::App for DyoSnap {
                 }
             }
         }
+        #[cfg(target_os = "macos")]
+        if let Some(w) = _frame.winit_window() {
+            crate::remember_root_window(w);
+        }
         // Remember the screen size while the main window is around.
         if let Some(m) = ctx.input(|i| i.viewport().monitor_size) && m.x > 100.0 {
             self.monitor = m;
@@ -55,6 +59,7 @@ impl eframe::App for DyoSnap {
             self.test_prefs_done = true;
             self.run_action(ctx, Action::Record);
         }
+
         if test_env("LS_TEST_EDIT") && !self.test_dialog_done && let Some(ed) = &mut self.ed {
             self.test_dialog_done = true;
             let font = self.font.clone();
@@ -220,6 +225,10 @@ impl eframe::App for DyoSnap {
             }
             SelectOut::Cancel => {
                 self.select = None;
+                // macOS: Esc before the picture was there; it is not wanted any more.
+                if let Some(job) = self.job.take() {
+                    job.cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
                 platform::end_screen_session();
                 if selecting_in_root {
                     // A cancelled capture leaves no window: the selection window just goes away.

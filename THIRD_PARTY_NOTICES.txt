@@ -3074,6 +3074,7 @@ Used by:
   - objc2-encode 4.1.0  https://crates.io/crates/objc2-encode/4.1.0
   - objc2-foundation 0.2.2  https://crates.io/crates/objc2-foundation/0.2.2
   - objc2-foundation 0.3.2  https://crates.io/crates/objc2-foundation/0.3.2
+  - objc2-screen-capture-kit 0.3.2  https://crates.io/crates/objc2-screen-capture-kit/0.3.2
   - objc2-uniform-type-identifiers 0.3.2  https://crates.io/crates/objc2-uniform-type-identifiers/0.3.2
   - objc2 0.5.3  https://crates.io/crates/objc2/0.5.3
   - objc2 0.6.5  https://crates.io/crates/objc2/0.6.5

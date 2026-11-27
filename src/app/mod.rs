@@ -97,7 +97,7 @@ struct Job {
     cancelled: Arc<AtomicBool>,
     kind: CaptureKind,
     /// The captured picture(s): one per screen when preparing a recording; empty if cancelled.
-    rx: Receiver<Vec<PathBuf>>,
+    rx: Receiver<JobOut>,
     for_record: bool,
     /// Linux: the picture is for choosing a screenshot area in DyoSnap (see `start_capture`).
     select_shot: bool,
@@ -110,6 +110,9 @@ struct Job {
     /// The screen (index in `displays()`) the first picture belongs to: macOS takes a picture of
     /// the screen under the mouse only, to choose a screenshot area on.
     first_screen: usize,
+    /// macOS: the selection overlay is open already and waits for the picture (see
+    /// `start_capture_ex`); the picture goes into it instead of opening a new one.
+    pending: bool,
 }
 
 struct Toast {
@@ -145,6 +148,8 @@ pub struct DyoSnap {
     rec_started_name: String,
     video_saving: Option<Receiver<Result<PathBuf, String>>>,
     copy_after_save: bool,
+    /// The video whose editor closes when its export is done (Save or Copy was clicked).
+    close_video_after_save: Option<PathBuf>,
     ffmpeg: Option<PathBuf>,
     devices: Arc<Mutex<Option<Devices>>>,
     tray: Option<platform::Tray>,
@@ -224,6 +229,7 @@ impl DyoSnap {
             rec_started_name: String::new(),
             video_saving: None,
             copy_after_save: false,
+            close_video_after_save: None,
             ffmpeg: record::find_ffmpeg(),
             devices: Arc::new(Mutex::new(None)),
             tray: None,
@@ -278,7 +284,7 @@ impl DyoSnap {
                 let ctx = ctx.clone();
                 std::sync::Arc::new(move |id: String| {
                     let _ = tx.send(AppEvent::Menu(id));
-                    ctx.request_repaint();
+                    crate::wake(&ctx);
                 })
             };
             // Later starts of DyoSnap reach this one like a menu click.
@@ -327,7 +333,7 @@ impl DyoSnap {
         std::thread::spawn(move || {
             let path = pollster::block_on(fut).map(|h| h.path().to_path_buf());
             let _ = tx.send(AppEvent::Dialog(kind, path));
-            ctx.request_repaint();
+            crate::wake(&ctx);
         });
     }
 

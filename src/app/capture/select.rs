@@ -102,6 +102,8 @@ pub(in crate::app) struct Select {
     /// When the capture was asked for, and whether the time until the first frame is logged.
     pub(in crate::app) started: Instant,
     pub(in crate::app) logged: bool,
+    /// Whether the time until the first frame with the frozen picture is logged.
+    pub(in crate::app) painted: bool,
 }
 
 impl Select {
@@ -126,6 +128,7 @@ impl Select {
             windows: Vec::new(),
             started,
             logged: false,
+            painted: false,
         }
     }
 
