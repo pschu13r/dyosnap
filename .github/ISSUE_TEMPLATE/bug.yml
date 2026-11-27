@@ -1,0 +1,92 @@
+name: Bug report
+description: Something does not work as it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please update to the [latest release](https://github.com/pschu13r/dyosnap/releases/latest) first.
+        Security problems: please [report them privately](https://github.com/pschu13r/dyosnap/security/advisories/new), not here.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: A short description. Screenshots or a short recording help a lot (made with DyoSnap, of course).
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: DyoSnap version
+      description: "macOS: DyoSnap › About. Linux: `dyosnap --version`."
+      placeholder: "1.4.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS
+        - Linux, GNOME
+        - Linux, KDE Plasma
+        - Linux, other desktop
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS and version
+      placeholder: "macOS 27.2 / Ubuntu 26.04 / Fedora 44"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installed from
+      options:
+        - macOS .zip
+        - apt / .deb
+        - dnf / .rpm
+        - Linux .tar.gz
+        - Built from source
+
+  - type: input
+    id: screens
+    attributes:
+      label: Screens
+      description: Number of screens and their resolution and scaling, if the problem is about capturing or recording.
+      placeholder: "2 screens: 3024×1964 at 200%, 2560×1440 at 100%"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        If DyoSnap crashed, please paste `crash.log`:
+        macOS: `~/Library/Logs/DyoSnap/crash.log`. Linux: `~/.local/state/dyosnap/crash.log`.
+        For a failed recording on Linux, also the output of `ffmpeg -hide_banner -encoders | grep -E "264"`.
+      render: text

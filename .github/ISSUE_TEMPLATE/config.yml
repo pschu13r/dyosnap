@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security problem
+    url: https://github.com/pschu13r/dyosnap/security/advisories/new
+    about: Please report security problems privately.
+  - name: Install help (macOS)
+    url: https://github.com/pschu13r/dyosnap#install-macos
+    about: '"Apple could not verify DyoSnap": how to open the app the first time.'
+  - name: Linux requirements
+    url: https://github.com/pschu13r/dyosnap#linux
+    about: Portal, PipeWire, tray icon on GNOME, ffmpeg with x264 or OpenH264.
