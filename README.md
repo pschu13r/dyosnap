@@ -39,6 +39,8 @@ it useful too.
 
 - **Fewer clicks:** every capture goes to the clipboard right away, and every edit
   updates it. No extra copy step after you annotate.
+- **Pixel-exact:** while you pick an area, a crosshair and a loupe show the pixels under
+  the mouse, with the size and the colour. Let go and the picture is taken.
 - **Extra folders:** add up to 9 more save folders in Preferences and give each its own
   shortcut. Press it, pick an area, and the picture lands in that folder.
 - **2 in 1:** take and annotate screenshots, and record your screen, in one tool.
