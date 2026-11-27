@@ -408,12 +408,12 @@ impl Settings {
 
     /// A fresh file name like "Snap 2026-11-16 11-41-59".
     pub fn new_name() -> String {
-        format!("Snap {}", chrono::Local::now().format("%Y-%m-%d %H-%M-%S"))
+        format!("Snap {}", jiff::ZonedDateTime::now().strftime("%Y-%m-%d %H-%M-%S"))
     }
 
     /// A file name from the name template. `kind` fills %T ("Screenshot" or "Screencast").
     pub fn make_name(&self, kind: &str) -> String {
-        let now = chrono::Local::now();
+        let now = jiff::ZonedDateTime::now();
         let mut out = String::new();
         let mut chars = self.name_template.chars().peekable();
         while let Some(c) = chars.next() {
@@ -422,13 +422,13 @@ impl Settings {
                 continue;
             }
             match chars.next() {
-                Some('Y') => out += &now.format("%Y").to_string(),
-                Some('y') => out += &now.format("%y").to_string(),
-                Some('m') => out += &now.format("%m").to_string(),
-                Some('d') => out += &now.format("%d").to_string(),
-                Some('H') => out += &now.format("%H").to_string(),
-                Some('M') => out += &now.format("%M").to_string(),
-                Some('S') => out += &now.format("%S").to_string(),
+                Some('Y') => out += &now.strftime("%Y").to_string(),
+                Some('y') => out += &now.strftime("%y").to_string(),
+                Some('m') => out += &now.strftime("%m").to_string(),
+                Some('d') => out += &now.strftime("%d").to_string(),
+                Some('H') => out += &now.strftime("%H").to_string(),
+                Some('M') => out += &now.strftime("%M").to_string(),
+                Some('S') => out += &now.strftime("%S").to_string(),
                 Some('T') => out += kind,
                 Some('R') => {
                     let mut seed = std::time::SystemTime::now()
@@ -706,6 +706,20 @@ mod tests {
         assert!(d.starts_with("Capture area to xxx"));
         assert!(!d.chars().any(|c| c.is_control()));
         assert!(d.chars().count() < 90);
+    }
+
+    #[test]
+    fn name_template_fills_every_placeholder() {
+        let s = Settings { name_template: "%Y %y %m %d %H %M %S %T %R".into(), ..Settings::default() };
+        let name = s.make_name("Screenshot");
+        let parts: Vec<&str> = name.split(' ').collect();
+        let lens: Vec<usize> = parts.iter().map(|p| p.len()).collect();
+        assert_eq!(lens, [4, 2, 2, 2, 2, 2, 2, 10, 5], "{name}");
+        assert!(parts[..7].iter().all(|p| p.chars().all(|c| c.is_ascii_digit())), "{name}");
+        assert_eq!(&parts[0][2..], parts[1]);
+        assert_eq!(parts[7], "Screenshot");
+        assert!(parts[8].chars().all(|c| c.is_ascii_alphanumeric()), "{name}");
+        assert!(Settings::new_name().starts_with("Snap 20"));
     }
 
     #[test]

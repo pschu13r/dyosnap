@@ -199,7 +199,7 @@ fn install_crash_log() {
             let _ = std::fs::create_dir_all(&dir);
             let text = format!(
                 "--- {} ---\n{info}\n{}\n",
-                chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                jiff::ZonedDateTime::now().strftime("%Y-%m-%d %H:%M:%S"),
                 std::backtrace::Backtrace::force_capture()
             );
             use std::io::Write;
@@ -229,7 +229,7 @@ impl log::Log for WarningLog {
             let _ = writeln!(
                 f,
                 "{} {} {}: {}",
-                chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
+                jiff::ZonedDateTime::now().strftime("%Y-%m-%d %H:%M:%S%.3f"),
                 r.level(),
                 r.target(),
                 r.args()
