@@ -29,6 +29,22 @@ pub fn cancel_capture() {}
 /// macOS only: the desktop resets the pointer itself here.
 pub fn reset_cursor() {}
 
+/// macOS only: Wayland puts a full-screen window above the panels itself.
+pub fn raise_overlay(_title: &str) {}
+
+/// macOS only: Linux always takes a picture of every screen (see `capture_all_screens`).
+pub fn capture_screen(_index: usize) -> Vec<PathBuf> {
+    super::capture_all_screens(super::displays().len(), false)
+}
+
+/// macOS only: the app keeps the previous area itself here (`last_area`).
+pub fn set_last_area(_r: egui::Rect) {}
+
+/// macOS only: Linux always chooses the area in DyoSnap, so none is ever "unknown".
+pub fn last_area_known() -> bool {
+    false
+}
+
 fn portal_screenshot(interactive: bool) -> Option<PathBuf> {
     super::portal::register();
     ensure_pictures_dir();

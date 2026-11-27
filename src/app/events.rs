@@ -266,10 +266,79 @@ impl DyoSnap {
                 false
             }
             Switch::Replace => {
+                if self.reuse_picture(ctx, a) {
+                    return false;
+                }
                 self.cancel_choosing(ctx, true);
                 true
             }
         }
+    }
+
+    /// macOS: switches between the screenshot and the record overlay on the picture that is
+    /// frozen already: no wait for the old overlay to vanish, no new capture, no decode.
+    /// Only for actions that would open an overlay on a fresh picture right away; anything
+    /// else (and a failure) returns false and takes the normal way, cancel and start.
+    /// The main window is hidden since the first start and `visible` stays false, so there
+    /// is nothing to restore. The job is None (the overlay is open), so no flag is left.
+    fn reuse_picture(&mut self, ctx: &egui::Context, a: Action) -> bool {
+        if !cfg!(target_os = "macos") || self.select.is_none() {
+            return false;
+        }
+        // The extra folder of a "capture to" shortcut, if it still exists.
+        let target = match a {
+            Action::CaptureTo(n) => self.settings.extra_dirs.iter().find(|d| d.id == n).map(|d| d.path.clone()),
+            _ => None,
+        };
+        let record = match a {
+            Action::Record => true,
+            Action::Capture(CaptureKind::Area) | Action::CaptureTo(_) => false,
+            Action::Capture(CaptureKind::Previous) if !platform::last_area_known() => false,
+            _ => return false,
+        };
+        let started = Instant::now();
+        let displays = platform::displays();
+        let Some(old) = self.select.as_mut() else { return false };
+        let same = |s: &SelScreen, d: &platform::Display| (s.bounds.min - d.bounds.min).abs().max_elem() < 1.0;
+        let screens = if record {
+            // All screens, in the order of `displays()`: the ones we have, and a silent
+            // picture of each other one (no overlay is on them, so no wait).
+            if !displays.iter().any(|d| old.screens.iter().any(|s| same(s, d))) {
+                return false;
+            }
+            let mut have: Vec<Option<SelScreen>> = old.screens.drain(..).map(Some).collect();
+            let mut all = Vec::new();
+            for (i, d) in displays.iter().enumerate() {
+                match have.iter_mut().find(|s| s.as_ref().is_some_and(|s| same(s, d))).and_then(|s| s.take()) {
+                    Some(s) => all.push(s),
+                    None => all.extend(self.sel_screens(&platform::capture_screen(i), i)),
+                }
+            }
+            all
+        } else {
+            // Only the screen under the mouse, as a fresh area screenshot does.
+            let i = platform::mouse_position().map_or(0, |m| platform::display_index_at(&displays, m));
+            let Some(pos) = displays.get(i).and_then(|d| old.screens.iter().position(|s| same(s, d))) else {
+                return false;
+            };
+            vec![old.screens.swap_remove(pos)]
+        };
+        if screens.is_empty() {
+            return false;
+        }
+        let sel = if record {
+            // Record options need the devices list, as in `start_capture_ex`.
+            self.list_devices();
+            Select::for_record(a, screens, started)
+        } else {
+            let mut sel = Select::new(a, screens, None, started);
+            sel.shot = true;
+            sel.target = target;
+            sel
+        };
+        self.select = Some(sel);
+        ctx.send_viewport_cmd(ViewportCommand::RequestPaintWhileHidden);
+        true
     }
 
     /// Opens the picture on the clipboard in the editor.
@@ -291,13 +360,14 @@ impl DyoSnap {
     }
 
     /// The frozen pictures of a capture job as screens to choose an area on. The files go away.
-    fn sel_screens(&self, res: &[PathBuf]) -> Vec<SelScreen> {
+    /// Picture `i` belongs to screen `first + i` of `displays()`.
+    fn sel_screens(&self, res: &[PathBuf], first: usize) -> Vec<SelScreen> {
         let displays = platform::displays();
         let mut screens = Vec::new();
         for (i, p) in res.iter().enumerate() {
             if let Ok(img) = image::open(p) {
                 let rgba = img.to_rgba8();
-                let d = displays.get(i).copied().unwrap_or(platform::Display {
+                let d = displays.get(first + i).copied().unwrap_or(platform::Display {
                     bounds: Rect::from_min_size(Pos2::ZERO, self.monitor),
                     scale: rgba.width() as f32 / self.monitor.x.max(1.0),
                 });
@@ -402,12 +472,13 @@ impl DyoSnap {
                 let (kind, for_record, job_action) = (job.kind, job.for_record, job.action);
                 let job_target = job.target.clone();
                 let select_shot = job.select_shot;
+                let (started, first_screen) = (job.started, job.first_screen);
                 let job_windows = job.windows.lock().map(|w| w.clone()).unwrap_or_default();
                 self.job = None;
                 match (res.first().cloned(), for_record || select_shot) {
                     (Some(p), false) => self.handle_capture(ctx, p, job_target),
                     (Some(_), true) if select_shot => {
-                        let screens = self.sel_screens(&res);
+                        let screens = self.sel_screens(&res, first_screen);
                         let previous = if kind == CaptureKind::Previous { self.last_area } else { None };
                         // Without choosing: the previous area again, or the whole screen.
                         let instant = match kind {
@@ -419,56 +490,23 @@ impl DyoSnap {
                             self.show_window(ctx);
                             self.toast_no_screen();
                         } else {
-                            self.select = Some(Select {
-                                action: job_action,
-                                screens,
-                                rect: None,
-                                before_full: None,
-                                drag: None,
-                                settings_open: false,
-                                focused: false,
-                                resent: 0,
-                                countdown: None,
-                                shot: true,
-                                target: job_target,
-                                placed: false,
-                                shown: 0,
-                                instant,
-                                windows: job_windows,
-                            });
+                            let mut sel = Select::new(job_action, screens, None, started);
+                            sel.shot = true;
+                            sel.target = job_target;
+                            sel.instant = instant;
+                            sel.windows = job_windows;
+                            self.select = Some(sel);
                             ctx.send_viewport_cmd(ViewportCommand::RequestPaintWhileHidden);
                         }
                     }
                     (Some(_), true) => {
-                        let screens = self.sel_screens(&res);
+                        let screens = self.sel_screens(&res, 0);
                         if screens.is_empty() {
                             self.show_window(ctx);
                             self.perm_prompt = !platform::screenshot_allowed();
                             self.toast_no_screen();
                         } else {
-                            // Start with a frame of 75% of the screen under the mouse, centred.
-                            let mouse = platform::mouse_position().unwrap_or(screens[0].bounds.center());
-                            let si = screens.iter().position(|s| s.bounds.contains(mouse)).unwrap_or(0);
-                            log::info!("record area: mouse at {mouse:?}, frame on screen {si}");
-                            let b = screens[si].bounds;
-                            let rect = Rect::from_center_size(b.center(), b.size() * 0.75);
-                            self.select = Some(Select {
-                                action: job_action,
-                                screens,
-                                rect: Some(rect),
-                                before_full: None,
-                                drag: None,
-                                settings_open: false,
-                                focused: false,
-                                resent: 0,
-                                countdown: None,
-                                shot: false,
-                                target: None,
-                                placed: false,
-                                shown: 0,
-                                instant: None,
-                                windows: Vec::new(),
-                            });
+                            self.select = Some(Select::for_record(job_action, screens, started));
                             ctx.send_viewport_cmd(ViewportCommand::RequestPaintWhileHidden);
                         }
                     }

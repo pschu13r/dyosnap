@@ -14,7 +14,7 @@ egui = "0.37"
 log = "0.4"
 epaint_default_fonts = "0.37"
 winit = { version = "0.30.13", default-features = false }
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp"] }
 tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd"] }
 ab_glyph = "0.2"
 rfd = { version = "0.18", default-features = false }
@@ -32,7 +32,7 @@ tray-icon = { version = "0.25", default-features = false }
 global-hotkey = "0.10"
 objc2 = "0.6"
 block2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSData", "NSDictionary", "NSString", "NSURL"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSData", "NSDictionary", "NSGeometry", "NSString", "NSURL"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem", "NSImageRep", "NSBitmapImageRep"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]

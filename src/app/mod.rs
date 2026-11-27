@@ -123,6 +123,11 @@ struct Job {
     target: Option<PathBuf>,
     /// Linux "Capture Window": the windows, listed before the picture was taken.
     windows: Arc<Mutex<Vec<Rect>>>,
+    /// When the capture was asked for, to log how long the overlay takes to show up.
+    started: Instant,
+    /// The screen (index in `displays()`) the first picture belongs to: macOS takes a picture of
+    /// the screen under the mouse only, to choose a screenshot area on.
+    first_screen: usize,
 }
 
 struct Toast {
@@ -904,8 +909,7 @@ impl eframe::App for DyoSnap {
                 // A full-screen capture is not an area to repeat with "Capture Previous Area".
                 let chosen = !sel.as_ref().is_some_and(|s| matches!(s.instant, Some((_, None))));
                 let path = sel.as_ref().and_then(|s| capture::crop_screens(&s.screens, r));
-                // macOS: `screencapture` plays the shutter itself.
-                #[cfg(target_os = "linux")]
+                // `screencapture` plays its own sound for the captures it takes itself.
                 if path.is_some() && self.settings.sound {
                     platform::play_capture_sound();
                 }
@@ -914,6 +918,7 @@ impl eframe::App for DyoSnap {
                     Some(p) => {
                         if chosen {
                             self.last_area = Some(r);
+                            platform::set_last_area(r);
                         }
                         self.handle_capture(&ctx, p, target);
                     }

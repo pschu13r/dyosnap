@@ -228,6 +228,31 @@ mod tests {
         assert_eq!(area_from_drag(pos2(50.0, 50.0), pos2(400.0, 350.0), (600, 300), &d), Some(want));
     }
 
+    /// Needs a screen and the permission to capture it: run with `--ignored`. Checks that the
+    /// BMP of `screencapture` loads like the PNG of the same screen (colours, alpha, not flipped). Two captures differ a little (menu bar blur, clock), so the colours may be off by some.
+    #[test]
+    #[ignore]
+    fn bmp_matches_png() {
+        let dir = std::env::temp_dir();
+        let (bmp, png) = (dir.join("dyosnap-test.bmp"), dir.join("dyosnap-test.png"));
+        for (t, f) in [("bmp", &bmp), ("png", &png)] {
+            let ok = Command::new("/usr/sbin/screencapture").args(["-x", "-t", t, "-D", "1"]).arg(f).status().unwrap().success();
+            assert!(ok);
+        }
+        let (a, b) = (image::open(&bmp).unwrap().to_rgba8(), image::open(&png).unwrap().to_rgba8());
+        let _ = (std::fs::remove_file(&bmp), std::fs::remove_file(&png));
+        assert_eq!(a.dimensions(), b.dimensions());
+        let (w, h) = a.dimensions();
+        let mut far = 0;
+        for (x, y) in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1), (w / 2, h / 2), (w / 4, h / 3), (w / 3, h * 3 / 4)] {
+            let (p, q) = (a.get_pixel(x, y).0, b.get_pixel(x, y).0);
+            println!("{x},{y}: bmp {p:?} png {q:?}");
+            assert_eq!(p[3], 255);
+            far += p[..3].iter().zip(&q[..3]).filter(|(m, n)| m.abs_diff(**n) > 40).count();
+        }
+        assert_eq!(far, 0, "colours differ");
+    }
+
     #[test]
     fn a_click_is_no_area() {
         assert_eq!(area_from_drag(pos2(100.0, 200.0), pos2(101.0, 200.0), (800, 600), &retina()), None);
@@ -235,11 +260,12 @@ mod tests {
 }
 
 /// Takes one silent picture of every screen (main screen first), to choose the record
-/// area on. `cursor` is for systems that share the screen first (Linux).
+/// area on. BMP, not PNG: it is faster to write and
+/// needs no inflate when loaded. `cursor` is for systems that share the screen first (Linux).
 pub fn capture_all_screens(count: usize, _cursor: bool) -> Vec<PathBuf> {
-    let files: Vec<PathBuf> = (0..count.max(1)).map(|i| temp_file(&format!("screen{i}"), "png")).collect();
+    let files: Vec<PathBuf> = (0..count.max(1)).map(|i| temp_file(&format!("screen{i}"), "bmp")).collect();
     let ok = Command::new("/usr/sbin/screencapture")
-        .arg("-x")
+        .args(["-x", "-t", "bmp"])
         .args(&files)
         .status()
         .map(|s| s.success())
@@ -248,6 +274,51 @@ pub fn capture_all_screens(count: usize, _cursor: bool) -> Vec<PathBuf> {
         return Vec::new();
     }
     files.into_iter().filter(|f| f.exists()).collect()
+}
+
+/// Takes one silent picture of the screen `index` (as in `displays()`), without the mouse
+/// pointer: the area of a screenshot is chosen on it. `screencapture -D` counts the screens
+/// from 1, the main screen first, which is the order of `displays()`. BMP, as above.
+pub fn capture_screen(index: usize) -> Vec<PathBuf> {
+    let file = temp_file("screen", "bmp");
+    let ok = Command::new("/usr/sbin/screencapture")
+        .args(["-x", "-t", "bmp", "-D", &(index + 1).to_string()])
+        .arg(&file)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if ok && file.exists() { vec![file] } else { Vec::new() }
+}
+
+/// Remembers an area chosen in DyoSnap's own overlay (global points), for "Capture Previous Area".
+pub fn set_last_area(r: Rect) {
+    if let Ok(mut last) = LAST_AREA.lock() {
+        *last = Some(r);
+    }
+}
+
+/// Whether "Capture Previous Area" has an area to repeat.
+pub fn last_area_known() -> bool {
+    LAST_AREA.lock().is_ok_and(|a| a.is_some())
+}
+
+/// Plays the screenshot sound of macOS, as `screencapture` does. It plays in its own process
+/// and is not waited for. Silent if the file is missing.
+pub fn play_capture_sound() {
+    const DIR: &str = "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/system";
+    let file = ["Screen Capture.aif", "Shutter.aif"].iter().map(|f| std::path::Path::new(DIR).join(f)).find(|p| p.is_file());
+    let Some(file) = file else { return };
+    if let Ok(mut child) = Command::new("/usr/bin/afplay")
+        .arg(file)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        // Reap it, so no zombie stays behind.
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+    }
 }
 
 /// Whether captures that don't ask first (full screen, timed) may run. macOS asks by

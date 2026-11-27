@@ -314,6 +314,43 @@ pub fn raise_window(title: &str) {
     }
 }
 
+/// Puts the windows with this title above the menu bar and the Dock, on every space and
+/// over full-screen apps, and makes them cover their whole screen. The area overlay needs
+/// that: at the "floating" level the menu bar and the Dock stay on top of it, live and with
+/// the normal pointer. Only windows not raised yet are changed, so it can run every frame.
+pub fn raise_overlay(title: &str) {
+    // NSScreenSaverWindowLevel; the menu bar is at 24, the Dock at 20.
+    const LEVEL: isize = 1000;
+    // canJoinAllSpaces | stationary | fullScreenAuxiliary
+    const BEHAVIOR: usize = (1 << 0) | (1 << 4) | (1 << 8);
+    let Some(cls) = AnyClass::get(c"NSApplication") else { return };
+    unsafe {
+        let Some(app): Option<Retained<AnyObject>> = msg_send![cls, sharedApplication] else { return };
+        let Some(windows): Option<Retained<AnyObject>> = msg_send![&*app, windows] else { return };
+        let n: usize = msg_send![&*windows, count];
+        for i in 0..n {
+            let Some(w): Option<Retained<AnyObject>> = msg_send![&*windows, objectAtIndex: i] else { continue };
+            let Some(t): Option<Retained<AnyObject>> = msg_send![&*w, title] else { continue };
+            let s: *const std::ffi::c_char = msg_send![&*t, UTF8String];
+            if s.is_null() || std::ffi::CStr::from_ptr(s).to_string_lossy() != title {
+                continue;
+            }
+            let level: isize = msg_send![&*w, level];
+            if level >= LEVEL {
+                continue;
+            }
+            let _: () = msg_send![&*w, setLevel: LEVEL];
+            let _: () = msg_send![&*w, setCollectionBehavior: BEHAVIOR];
+            if let Some(screen) = msg_send![&*w, screen] {
+                let screen: Retained<AnyObject> = screen;
+                let f: objc2_foundation::NSRect = msg_send![&*screen, frame];
+                let _: () = msg_send![&*w, setFrame: f, display: true];
+            }
+            log::info!(target: "dyosnap", "select: overlay raised above the menu bar and the Dock");
+        }
+    }
+}
+
 /// Whether a window with exactly this title is on screen. The main window can be shown
 /// without the app knowing (macOS restores it); this asks AppKit itself.
 pub fn window_visible(title: &str) -> bool {

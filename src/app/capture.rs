@@ -36,6 +36,51 @@ pub(super) struct SelScreen {
     pub(super) tex: Option<TextureHandle>,
 }
 
+impl SelScreen {
+    /// Where the pixels of the picture are on the screen.
+    pub(super) fn grid(&self) -> PixelGrid {
+        let size = self.img.as_ref().map_or([0, 0], |i| i.size);
+        // The picture decides how many pixels one point is: what is cut out must be what was shown.
+        let scale = if size[0] > 0 && self.bounds.width() > 0.0 { size[0] as f32 / self.bounds.width() } else { self.scale };
+        PixelGrid { bounds: self.bounds, scale, size }
+    }
+}
+
+/// The pixels of one screen's picture, and where they are on the screen (global points).
+/// A screenshot area is chosen in whole pixels, so what is shown, measured and saved is the same.
+#[derive(Clone, Copy)]
+pub(super) struct PixelGrid {
+    pub(super) bounds: Rect,
+    /// Pixels per point.
+    pub(super) scale: f32,
+    pub(super) size: [usize; 2],
+}
+
+impl PixelGrid {
+    /// The pixel under the point `p`; the nearest one if `p` is outside the screen.
+    pub(super) fn pixel_at(&self, p: Pos2) -> [u32; 2] {
+        let q = |v: f32, len: usize| ((v * self.scale).floor().max(0.0) as u32).min(len.max(1) as u32 - 1);
+        [q(p.x - self.bounds.min.x, self.size[0]), q(p.y - self.bounds.min.y, self.size[1])]
+    }
+
+    /// The area of a drag from `a` to `b`: from the pixel under the press to the pixel under
+    /// the release, both included. In points, on the borders of those pixels.
+    pub(super) fn drag_rect(&self, a: Pos2, b: Pos2) -> Rect {
+        let (pa, pb) = (self.pixel_at(a), self.pixel_at(b));
+        let at = |x: u32, y: u32| self.bounds.min + vec2(x as f32, y as f32) / self.scale;
+        Rect::from_min_max(at(pa[0].min(pb[0]), pa[1].min(pb[1])), at(pa[0].max(pb[0]) + 1, pa[1].max(pb[1]) + 1))
+    }
+
+    /// The pixels `[x0, y0, x1, y1]` of an area (`x1` and `y1` are not included), cut to the
+    /// picture. None if it has no pixels.
+    pub(super) fn rect_pixels(&self, r: Rect) -> Option<[u32; 4]> {
+        let px = |v: f32, len: usize| (v * self.scale).round().clamp(0.0, len as f32) as u32;
+        let (x0, y0) = (px(r.min.x - self.bounds.min.x, self.size[0]), px(r.min.y - self.bounds.min.y, self.size[1]));
+        let (x1, y1) = (px(r.max.x - self.bounds.min.x, self.size[0]), px(r.max.y - self.bounds.min.y, self.size[1]));
+        (x1 > x0 && y1 > y0).then_some([x0, y0, x1, y1])
+    }
+}
+
 /// Choosing the area to record, or on Linux the area of a screenshot. One overlay window
 /// per screen; the area is in global points, so it can be dragged from one screen to another.
 pub(super) struct Select {
@@ -72,7 +117,50 @@ pub(super) struct Select {
     /// Linux "Capture Window" (KDE): the windows, top-most first. A click takes the one under
     /// the mouse, as `screencapture -w` on macOS.
     pub(super) windows: Vec<Rect>,
+    /// When the capture was asked for, and whether the time until the first frame is logged.
+    pub(super) started: Instant,
+    pub(super) logged: bool,
 }
+
+impl Select {
+    /// A fresh selection: nothing drawn or focused yet. Callers set what differs (`shot`,
+    /// `target`, `instant`, `windows`), so the job and the mode switch build the same state.
+    pub(super) fn new(action: Action, screens: Vec<SelScreen>, rect: Option<Rect>, started: Instant) -> Self {
+        Select {
+            action,
+            screens,
+            rect,
+            before_full: None,
+            drag: None,
+            settings_open: false,
+            focused: false,
+            resent: 0,
+            countdown: None,
+            shot: false,
+            target: None,
+            placed: false,
+            shown: 0,
+            instant: None,
+            windows: Vec::new(),
+            started,
+            logged: false,
+        }
+    }
+
+    /// Choosing the area of a recording: all screens, starting with a frame of 75% of the
+    /// screen under the mouse, centred.
+    pub(super) fn for_record(action: Action, screens: Vec<SelScreen>, started: Instant) -> Self {
+        let mouse = platform::mouse_position().unwrap_or(screens[0].bounds.center());
+        let si = screens.iter().position(|s| s.bounds.contains(mouse)).unwrap_or(0);
+        log::info!("record area: mouse at {mouse:?}, frame on screen {si}");
+        let b = screens[si].bounds;
+        let rect = Rect::from_center_size(b.center(), b.size() * 0.75);
+        Select::new(action, screens, Some(rect), started)
+    }
+}
+
+/// The title of the area overlay windows (macOS finds them by it, see `platform::raise_overlay`).
+const OVERLAY_TITLE: &str = "Select area to record";
 
 /// Linux: how long the chosen area is shown before the recording starts.
 pub(super) const COUNTDOWN_SECS: u64 = 3;
@@ -83,11 +171,11 @@ pub(super) enum SelectOut {
     None,
     Cancel,
     Record(Rect),
-    /// Linux: take this area of the frozen picture as the screenshot.
+    /// Take this area of the frozen picture as the screenshot.
     Shot(Rect),
 }
 
-/// Linux: the area `r` (global points) of the frozen pictures as a PNG in the temp folder.
+/// The area `r` (global points) of the frozen pictures as a PNG in the temp folder.
 pub(super) fn crop_screens(screens: &[SelScreen], r: Rect) -> Option<PathBuf> {
     let list: Vec<platform::Display> = screens.iter().map(|s| platform::Display { bounds: s.bounds, scale: s.scale }).collect();
     if list.is_empty() {
@@ -95,14 +183,8 @@ pub(super) fn crop_screens(screens: &[SelScreen], r: Rect) -> Option<PathBuf> {
     }
     let scr = &screens[platform::display_index_at(&list, r.center())];
     let img = scr.img.as_ref()?;
-    let r = r.intersect(scr.bounds);
-    let (iw, ih) = (img.size[0] as u32, img.size[1] as u32);
-    let px = |v: f32, max: u32| (v * scr.scale).round().clamp(0.0, max as f32) as u32;
-    let (x0, y0) = (px(r.min.x - scr.bounds.min.x, iw), px(r.min.y - scr.bounds.min.y, ih));
-    let (x1, y1) = (px(r.max.x - scr.bounds.min.x, iw), px(r.max.y - scr.bounds.min.y, ih));
-    if x1 <= x0 || y1 <= y0 {
-        return None;
-    }
+    let iw = img.size[0] as u32;
+    let [x0, y0, x1, y1] = scr.grid().rect_pixels(r)?;
     let mut out = image::RgbaImage::new(x1 - x0, y1 - y0);
     for (x, y, p) in out.enumerate_pixels_mut() {
         let c = img.pixels[((y0 + y) * iw + x0 + x) as usize];
@@ -206,6 +288,76 @@ pub(super) fn countdown_overlay(ui: &mut Ui, painter: &egui::Painter, full: Rect
     SelectOut::None
 }
 
+/// How the frozen picture is sampled: smooth when it is shrunk, but crisp squares when it is
+/// magnified, as in the loupe.
+fn loupe_options() -> TextureOptions {
+    TextureOptions { magnification: egui::TextureFilter::Nearest, ..TextureOptions::LINEAR }
+}
+
+/// The two lines of the crosshair, one physical pixel wide, through pixel `px` of a screen
+/// whose top-left is at `origin` (in the window). Light with a dark edge: it shows on any picture.
+fn draw_crosshair(painter: &egui::Painter, full: Rect, origin: Pos2, scale: f32, px: [u32; 2]) {
+    let one = 1.0 / scale;
+    let (x, y) = (origin.x + px[0] as f32 * one, origin.y + px[1] as f32 * one);
+    let dark = Color32::from_black_alpha(170);
+    let vertical = |from: f32, to: f32| Rect::from_min_max(pos2(x + from, full.min.y), pos2(x + to, full.max.y));
+    let horizontal = |from: f32, to: f32| Rect::from_min_max(pos2(full.min.x, y + from), pos2(full.max.x, y + to));
+    painter.rect_filled(vertical(-one, 2.0 * one), 0.0, dark);
+    painter.rect_filled(horizontal(-one, 2.0 * one), 0.0, dark);
+    painter.rect_filled(vertical(0.0, one), 0.0, Color32::WHITE);
+    painter.rect_filled(horizontal(0.0, one), 0.0, Color32::WHITE);
+}
+
+/// Pixels across the loupe, and points per pixel in it.
+const LOUPE_PIXELS: u32 = 15;
+const LOUPE_CELL: f32 = 8.0;
+
+/// The loupe at the bottom right of the mouse (left or top where that would leave the screen):
+/// 15 x 15 pixels around pixel `px`, magnified, the middle one framed, and `info` under it.
+#[allow(clippy::too_many_arguments)]
+fn draw_loupe(painter: &egui::Painter, full: Rect, origin: Pos2, tex: &TextureHandle, img_size: [usize; 2], px: [u32; 2], scale: f32, info: &str) {
+    let side = LOUPE_PIXELS as f32 * LOUPE_CELL;
+    let galley = painter.layout_no_wrap(info.into(), FontId::proportional(13.0), Color32::WHITE);
+    let info_size = galley.size() + vec2(16.0, 8.0);
+    let total = vec2(side.max(info_size.x), side + 4.0 + info_size.y);
+    let mouse = origin + vec2(px[0] as f32, px[1] as f32) / scale + vec2(0.5, 0.5) / scale;
+    let mut pos = mouse + vec2(20.0, 20.0);
+    if pos.x + total.x > full.max.x - 4.0 {
+        pos.x = mouse.x - 20.0 - total.x;
+    }
+    if pos.y + total.y > full.max.y - 4.0 {
+        pos.y = mouse.y - 20.0 - total.y;
+    }
+    let lrect = Rect::from_min_size(pos, vec2(side, side));
+    // The pixels around the middle one. Past the edge of the picture the edge pixel repeats.
+    let half = (LOUPE_PIXELS / 2) as f32;
+    let (w, h) = (img_size[0].max(1) as f32, img_size[1].max(1) as f32);
+    let uv = Rect::from_min_max(
+        pos2((px[0] as f32 - half) / w, (px[1] as f32 - half) / h),
+        pos2((px[0] as f32 + half + 1.0) / w, (px[1] as f32 + half + 1.0) / h),
+    );
+    painter.add(egui::epaint::RectShape::filled(lrect, 6.0, Color32::WHITE).with_texture(tex.id(), uv));
+    // Faint crosshair through the middle pixel, as on the screen.
+    let mid = lrect.min + vec2(half + 0.5, half + 0.5) * LOUPE_CELL;
+    let cell = Rect::from_center_size(mid, vec2(LOUPE_CELL, LOUPE_CELL));
+    for (a, b) in [
+        (pos2(lrect.min.x, mid.y), pos2(cell.min.x, mid.y)),
+        (pos2(cell.max.x, mid.y), pos2(lrect.max.x, mid.y)),
+        (pos2(mid.x, lrect.min.y), pos2(mid.x, cell.min.y)),
+        (pos2(mid.x, cell.max.y), pos2(mid.x, lrect.max.y)),
+    ] {
+        painter.line_segment([a, b], Stroke::new(3.0, Color32::from_black_alpha(50)));
+        painter.line_segment([a, b], Stroke::new(1.0, Color32::from_white_alpha(130)));
+    }
+    painter.rect_stroke(cell, 0.0, Stroke::new(1.0, Color32::BLACK), StrokeKind::Outside);
+    painter.rect_stroke(cell, 0.0, Stroke::new(1.0, Color32::WHITE), StrokeKind::Inside);
+    painter.rect_stroke(lrect, 6.0, Stroke::new(2.0, Color32::from_black_alpha(220)), StrokeKind::Outside);
+    painter.rect_stroke(lrect, 6.0, Stroke::new(1.0, Color32::WHITE), StrokeKind::Inside);
+    let irect = Rect::from_min_size(pos2(lrect.min.x, lrect.max.y + 4.0), info_size);
+    painter.rect_filled(irect, 5.0, Color32::from_black_alpha(200));
+    painter.galley(irect.min + vec2(8.0, 4.0), galley, Color32::WHITE);
+}
+
 impl DyoSnap {
     pub(super) fn start_capture(&mut self, ctx: &egui::Context, kind: CaptureKind, for_record: bool) {
         let action = if for_record { Action::Record } else { Action::Capture(kind) };
@@ -252,10 +404,24 @@ impl DyoSnap {
         }
     }
 
+    /// Looks for the cameras and microphones in the background, for the record options.
+    pub(super) fn list_devices(&self) {
+        if let Some(ff) = self.ffmpeg.clone() {
+            let slot = self.devices.clone();
+            std::thread::spawn(move || {
+                let d = platform::list_devices(&ff);
+                if let Ok(mut s) = slot.lock() {
+                    *s = Some(d);
+                }
+            });
+        }
+    }
+
     fn start_capture_ex(&mut self, ctx: &egui::Context, action: Action, kind: CaptureKind, for_record: bool, target: Option<PathBuf>) {
         if self.busy() {
             return;
         }
+        let started = Instant::now();
         if let Some(v) = &mut self.video {
             v.stop();
         }
@@ -284,22 +450,28 @@ impl DyoSnap {
         let lists_windows = platform::can_list_windows();
         #[cfg(not(target_os = "linux"))]
         let lists_windows = false;
-        let select_shot = cfg!(target_os = "linux")
+        let linux_shot = cfg!(target_os = "linux")
             && !for_record
             && (matches!(kind, CaptureKind::Area | CaptureKind::Previous | CaptureKind::FullScreen | CaptureKind::Timed(_))
                 || (kind == CaptureKind::Window && lists_windows));
+        // macOS: an area is chosen in the same overlay, so the crosshair and the loupe are
+        // the same on both systems and the area is exact to the pixel. Window, full-screen and
+        // timed captures, and "Previous" once an area is known, stay with `screencapture`.
+        // Only the screen under the mouse is taken: that is faster than all of them.
+        let mac_shot = cfg!(target_os = "macos")
+            && !for_record
+            && (kind == CaptureKind::Area || (kind == CaptureKind::Previous && !platform::last_area_known()));
+        let select_shot = linux_shot || mac_shot;
+        let first_screen = if mac_shot {
+            let displays = platform::displays();
+            platform::mouse_position().map_or(0, |m| platform::display_index_at(&displays, m))
+        } else {
+            0
+        };
         let windows = Arc::new(Mutex::new(Vec::new()));
         let windows2 = windows.clone();
         if for_record {
-            if let Some(ff) = self.ffmpeg.clone() {
-                let slot = self.devices.clone();
-                std::thread::spawn(move || {
-                    let d = platform::list_devices(&ff);
-                    if let Ok(mut s) = slot.lock() {
-                        *s = Some(d);
-                    }
-                });
-            }
+            self.list_devices();
         }
         let (tx, rx) = channel();
         let ctx2 = ctx.clone();
@@ -341,7 +513,9 @@ impl DyoSnap {
                 }
             }
             let _ = &windows2;
-            let r = if for_record || select_shot {
+            let r = if mac_shot {
+                platform::capture_screen(first_screen)
+            } else if for_record || select_shot {
                 // A frozen picture of every screen to choose the area on. Area screenshots
                 // leave the mouse pointer out, as on macOS; full-screen ones follow the setting.
                 let choosing = select_shot && matches!(kind, CaptureKind::Area | CaptureKind::Previous | CaptureKind::Window);
@@ -351,7 +525,7 @@ impl DyoSnap {
             };
             send(r);
         });
-        self.job = Some(Job { action, cancelled, rx, kind, for_record, select_shot, target, windows });
+        self.job = Some(Job { action, cancelled, rx, kind, for_record, select_shot, target, windows, started, first_screen });
     }
 
     /// A new picture. `target`: an extra folder to save it into (and copy it), whatever
@@ -460,13 +634,17 @@ impl DyoSnap {
         let settings = &mut self.settings;
         let devices = &self.devices;
         let has_ff = self.ffmpeg.is_some();
-        let Select { screens, rect, before_full, drag, settings_open, focused, countdown, shot, shown, instant, placed, windows, .. } = sel;
+        let Select { screens, rect, before_full, drag, settings_open, focused, countdown, shot, shown, instant, placed, windows, started, logged, .. } = sel;
         let (instant, placed) = (*instant, *placed);
         let windows: &[Rect] = windows;
         let shown = *shown;
         let shot_mode = *shot;
         let all = screens.iter().fold(Rect::NOTHING, |a, s| a.union(s.bounds));
         let bounds_list: Vec<Rect> = screens.iter().map(|s| s.bounds).collect();
+        let grids: Vec<PixelGrid> = screens.iter().map(|s| s.grid()).collect();
+        // The screen that holds `p`, for the pixels of a point.
+        let grid_at = |p: Pos2| grids[bounds_list.iter().position(|b| b.contains(p)).unwrap_or(0)];
+        let started = *started;
         // The screen that holds the middle of the area gets the Record button.
         let main_i = rect
             .map(|r| {
@@ -500,9 +678,13 @@ impl DyoSnap {
         let mut any_focus_sent = *focused;
 
         for (si, scr) in screens.iter_mut().enumerate() {
+            // One window per physical screen, not per place in the list: after a switch between
+            // screenshot and recording a screen keeps its window, and a window never jumps
+            // to another screen.
+            let vp_id = ViewportId::from_hash_of(("dyosnap_select", scr.bounds.min.x as i32, scr.bounds.min.y as i32));
             let builder = ViewportBuilder::default()
                 .with_app_id(crate::platform::APP_ID)
-                .with_title("Select area to record")
+                .with_title(OVERLAY_TITLE)
                 .with_decorations(false)
                 .with_position(scr.bounds.min)
                 .with_inner_size(scr.bounds.size())
@@ -512,12 +694,18 @@ impl DyoSnap {
                 .with_has_shadow(false);
             let body = |ui: &mut Ui, _: egui::ViewportClass| {
                 let ctx = ui.ctx().clone();
+                // macOS: above the menu bar and the Dock, which stay on top of a floating window.
+                platform::raise_overlay(OVERLAY_TITLE);
+                if !*logged {
+                    *logged = true;
+                    log::info!(target: "dyosnap", "select: overlay shown after {} ms", started.elapsed().as_millis());
+                }
                 if !any_focus_sent && si == mouse_i {
                     any_focus_sent = true;
                     ctx.send_viewport_cmd(ViewportCommand::Focus);
                 }
                 if let (None, Some(img)) = (&scr.tex, &scr.img) {
-                    scr.tex = Some(ctx.load_texture(format!("select_snapshot_{si}"), img.clone(), TextureOptions::LINEAR));
+                    scr.tex = Some(ctx.load_texture(format!("select_snapshot_{si}"), img.clone(), loupe_options()));
                 }
                 let offset = ctx
                     .input(|i| i.viewport().inner_rect.map(|r| r.min.to_vec2()))
@@ -570,9 +758,12 @@ impl DyoSnap {
                     });
                     log::info!(target: "dyosnap", "select: drag started on screen {si} at {p:?}");
                 }
-                if resp.dragged() || (global.is_some() && drag.is_some()) {
+                // On the release the mouse can have moved on since the last drag frame.
+                if resp.dragged() || (shot_mode && resp.drag_stopped()) || (global.is_some() && drag.is_some()) {
                     if let (Some(d), Some(p)) = (*drag, pointer) {
                         *rect = Some(match d {
+                            // A screenshot area is whole pixels of the screen where it began.
+                            SelDrag::New(s) if shot_mode => grid_at(s).drag_rect(s, p),
                             SelDrag::New(s) => Rect::from_two_pos(s, p).intersect(all),
                             SelDrag::Move(s, r) => {
                                 // The area can move across all screens.
@@ -596,6 +787,8 @@ impl DyoSnap {
                     }
                 }
                 let mut shot_taken = None;
+                // The pointer is on a button of the record area: no crosshair there.
+                let mut over_ui = false;
                 // "Capture Window": the window under the mouse, cut to this screen.
                 let hovered_window = if shot_mode && drag.is_none() {
                     resp.hover_pos()
@@ -612,8 +805,12 @@ impl DyoSnap {
                 if (resp.drag_stopped() || released) && drag.is_some() {
                     *drag = None;
                     log::info!(target: "dyosnap", "select: drag stopped on screen {si}, area {rect:?}");
-                    let min = if shot_mode { 3.0 } else { 16.0 };
-                    if rect.is_some_and(|r| r.width() < min || r.height() < min) {
+                    // Too small: 3 pixels for a screenshot, 16 points for a recording.
+                    let too_small = |r: Rect| match shot_mode {
+                        true => grid_at(r.center()).rect_pixels(r).is_none_or(|p| p[2] - p[0] < 3 || p[3] - p[1] < 3),
+                        false => r.width() < 16.0 || r.height() < 16.0,
+                    };
+                    if rect.is_some_and(too_small) {
                         *rect = None;
                     }
                     if shot_mode {
@@ -653,18 +850,12 @@ impl DyoSnap {
                                 painter.rect_filled(d, 0.0, dim);
                             }
                         }
-                        painter.rect_stroke(lr, 0.0, Stroke::new(1.5, Color32::WHITE), StrokeKind::Outside);
                         if shot_mode {
-                            // Only the size, next to the corner being dragged.
-                            let label = format!("{} x {}", (r.width() * scr.scale).round(), (r.height() * scr.scale).round());
-                            let galley = painter.layout_no_wrap(label, FontId::proportional(13.0), Color32::WHITE);
-                            let lrect = Rect::from_min_size(lr.right_bottom() + vec2(8.0, 8.0), galley.size() + vec2(16.0, 8.0));
-                            let lrect = lrect.translate(vec2(
-                                (full.max.x - 4.0 - lrect.max.x).min(0.0),
-                                (full.max.y - 4.0 - lrect.max.y).min(0.0),
-                            ));
-                            painter.rect_filled(lrect, 4.0, Color32::from_black_alpha(190));
-                            painter.galley(lrect.min + vec2(8.0, 4.0), galley, Color32::WHITE);
+                            // One pixel wide, on the outer pixels of the area: the last row and
+                            // column are the ones the crosshair runs through.
+                            painter.rect_stroke(lr, 0.0, Stroke::new(1.0 / grids[si].scale, Color32::WHITE), StrokeKind::Inside);
+                        } else {
+                            painter.rect_stroke(lr, 0.0, Stroke::new(1.5, Color32::WHITE), StrokeKind::Outside);
                         }
                         let handles = if shot_mode { Vec::new() } else {
                             vec![lr.left_top(), lr.right_top(), lr.left_bottom(), lr.right_bottom(), lr.center_top(), lr.center_bottom(), lr.left_center(), lr.right_center()]
@@ -677,6 +868,7 @@ impl DyoSnap {
                             // Top right: the size, and a button for a full-screen recording.
                             let fs = Rect::from_min_size(lr.right_top() + vec2(-8.0 - 26.0, 8.0), vec2(26.0, 26.0));
                             let fs_resp = ui.interact(fs, Id::new(("fullscreen_btn", si)), Sense::click());
+                            over_ui |= fs_resp.hovered();
                             let is_full = (r.min - scr.bounds.min).length() < 1.0 && (r.max - scr.bounds.max).length() < 1.0;
                             painter.rect_filled(fs, 4.0, if fs_resp.hovered() || is_full { BLUE } else { Color32::from_black_alpha(190) });
                             icons::draw(&painter, fs.shrink(5.0), Icon::Resize, Color32::WHITE);
@@ -729,6 +921,7 @@ impl DyoSnap {
                     let rec_rect = Rect::from_center_size(c - vec2(15.0, 0.0), vec2(84.0, 26.0));
                     let gear_rect = Rect::from_min_size(pos2(rec_rect.max.x + 4.0, rec_rect.min.y), vec2(26.0, 26.0));
                     let rec_resp = ui.interact(rec_rect, Id::new(("rec_btn", si)), Sense::click());
+                    over_ui |= rec_resp.hovered();
                     let fill = if rec_resp.hovered() { Color32::from_rgb(240, 58, 58) } else { RED };
                     painter.rect_filled(rec_rect, 4.0, fill);
                     painter.text(rec_rect.center(), Align2::CENTER_CENTER, "Record", FontId::proportional(13.0), Color32::WHITE);
@@ -736,6 +929,7 @@ impl DyoSnap {
                         out = SelectOut::Record(r);
                     }
                     let gear_resp = ui.interact(gear_rect, Id::new(("gear_btn", si)), Sense::click());
+                    over_ui |= gear_resp.hovered();
                     painter.rect_filled(gear_rect, 4.0, if gear_resp.hovered() { Color32::from_gray(95) } else { Color32::from_gray(70) });
                     icons::draw(&painter, gear_rect.shrink(5.0), Icon::Gear, Color32::WHITE);
                     if gear_resp.clicked() {
@@ -764,6 +958,47 @@ impl DyoSnap {
                             });
                     }
                 }
+                // The crosshair and the loupe: wherever a drag would start a new area.
+                let local_mouse = ctx.input(|i| i.pointer.latest_pos()).map(|p| p + offset);
+                let mouse = match drag.is_some() {
+                    true => global.or(local_mouse),
+                    false => local_mouse,
+                }
+                .filter(|p| scr.bounds.contains(*p));
+                let grid = grids[si];
+                let cross = mouse.filter(|&m| match (shot_mode, *rect) {
+                    (true, _) => windows.is_empty(),
+                    (false, None) => true,
+                    (false, Some(r)) => {
+                        let panel = ctx.memory(|mem| mem.area_rect(Id::new(("rec_opts", si))));
+                        matches!(drag, Some(SelDrag::New(_)))
+                            || (drag.is_none()
+                                && !over_ui
+                                && edges_near(r, m, 8.0) == 0
+                                && !r.contains(m)
+                                && !(*settings_open && panel.is_some_and(|p| p.contains(m))))
+                    }
+                });
+                if let (Some(m), Some(img)) = (cross, &scr.img) {
+                    ctx.set_cursor_icon(egui::CursorIcon::None);
+                    let px = grid.pixel_at(m);
+                    let origin = screen_rect.min;
+                    draw_crosshair(&painter, full, origin, grid.scale, px);
+                    let [cx, cy] = [px[0] as usize, px[1] as usize];
+                    let (w, h) = match (*drag, *rect) {
+                        (Some(_), Some(r)) => grid.rect_pixels(r).map_or((0, 0), |p| (p[2] - p[0], p[3] - p[1])),
+                        _ => (px[0], px[1]),
+                    };
+                    let c = img.pixels.get(cy * img.size[0] + cx).map_or([0; 4], |c| c.to_srgba_unmultiplied());
+                    let info = format!("{w} x {h}   #{:02X}{:02X}{:02X}", c[0], c[1], c[2]);
+                    if let Some(t) = &scr.tex {
+                        draw_loupe(&painter, full, origin, t, img.size, px, grid.scale, &info);
+                    }
+                }
+                // macOS: the other screens' lines go when the mouse leaves; nothing else
+                // wakes a window the mouse is not on.
+                #[cfg(target_os = "macos")]
+                ctx.request_repaint_after(Duration::from_millis(16));
                 let (enter, esc) = ctx.input(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
                 if esc || ctx.input(|i| i.viewport().close_requested()) {
                     out = SelectOut::Cancel;
@@ -782,7 +1017,7 @@ impl DyoSnap {
                     body(ui, egui::ViewportClass::Root)
                 }
                 Some(_) => SelectOut::None,
-                None => crate::show_immediate(ctx, ViewportId::from_hash_of(("dyosnap_select", si)), builder, body),
+                None => crate::show_immediate(ctx, vp_id, builder, body),
             };
             if !matches!(res, SelectOut::None) {
                 out = res;
@@ -1012,5 +1247,89 @@ impl DyoSnap {
             }
         }
         act
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A screen of 100 x 50 points whose top-left is at `x` (a second screen to the right).
+    fn grid(scale: f32, x: f32) -> PixelGrid {
+        PixelGrid {
+            bounds: Rect::from_min_size(pos2(x, 0.0), vec2(100.0, 50.0)),
+            scale,
+            size: [(100.0 * scale) as usize, (50.0 * scale) as usize],
+        }
+    }
+
+    fn size_of(g: &PixelGrid, r: Rect) -> (u32, u32) {
+        let p = g.rect_pixels(r).unwrap();
+        (p[2] - p[0], p[3] - p[1])
+    }
+
+    #[test]
+    fn drag_covers_both_end_pixels_at_scale_1() {
+        let g = grid(1.0, 0.0);
+        let r = g.drag_rect(pos2(10.0, 10.0), pos2(20.0, 30.0));
+        assert_eq!(g.rect_pixels(r), Some([10, 10, 21, 31]));
+        // One pixel: press and release on the same one.
+        assert_eq!(g.rect_pixels(g.drag_rect(pos2(5.3, 5.9), pos2(5.7, 5.1))), Some([5, 5, 6, 6]));
+    }
+
+    #[test]
+    fn drag_covers_both_end_pixels_at_scale_2() {
+        let g = grid(2.0, 0.0);
+        // Points 10.0 and 20.5 are pixels 20 and 41; 10.0 and 30.0 are 20 and 60.
+        let r = g.drag_rect(pos2(10.0, 10.0), pos2(20.5, 30.0));
+        assert_eq!(g.rect_pixels(r), Some([20, 20, 42, 61]));
+        assert_eq!(r, Rect::from_min_max(pos2(10.0, 10.0), pos2(21.0, 30.5)));
+        // The size shown is the size saved.
+        assert_eq!(size_of(&g, r), ((r.width() * 2.0).round() as u32, (r.height() * 2.0).round() as u32));
+    }
+
+    #[test]
+    fn drag_direction_does_not_matter() {
+        let g = grid(2.0, 0.0);
+        let a = g.drag_rect(pos2(10.0, 10.0), pos2(60.5, 40.0));
+        assert_eq!(a, g.drag_rect(pos2(60.5, 40.0), pos2(10.0, 10.0)));
+        assert_eq!(a, g.drag_rect(pos2(60.5, 10.0), pos2(10.0, 40.0)));
+    }
+
+    #[test]
+    fn drag_on_a_second_screen_and_out_of_the_screen() {
+        let g = grid(2.0, 100.0);
+        let r = g.drag_rect(pos2(110.0, 5.0), pos2(500.0, 500.0));
+        // Cut at the last pixel of the screen.
+        assert_eq!(g.rect_pixels(r), Some([20, 10, 200, 100]));
+        let r = g.drag_rect(pos2(90.0, -5.0), pos2(101.0, 2.0));
+        assert_eq!(g.rect_pixels(r), Some([0, 0, 3, 5]));
+    }
+
+    #[test]
+    fn whole_screen_is_all_pixels() {
+        for scale in [1.0, 2.0] {
+            let g = grid(scale, 0.0);
+            assert_eq!(g.rect_pixels(g.bounds), Some([0, 0, g.size[0] as u32, g.size[1] as u32]));
+        }
+    }
+
+    #[test]
+    fn crop_has_the_size_that_was_shown() {
+        let size = [200, 100];
+        let mut img = ColorImage::filled(size, Color32::BLACK);
+        img.pixels[(20 * 200 + 20) as usize] = Color32::from_rgb(10, 20, 30);
+        let scr = SelScreen {
+            bounds: Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 50.0)),
+            scale: 2.0,
+            img: Some(Arc::new(img)),
+            tex: None,
+        };
+        let r = scr.grid().drag_rect(pos2(10.0, 10.0), pos2(20.5, 30.0));
+        let path = crop_screens(&[scr], r).unwrap();
+        let out = image::open(&path).unwrap().to_rgba8();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(out.dimensions(), (22, 41));
+        assert_eq!(out.get_pixel(0, 0).0, [10, 20, 30, 255]);
     }
 }
