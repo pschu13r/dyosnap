@@ -92,28 +92,18 @@ fn file_uri_to_path(uri: &str) -> Option<PathBuf> {
     let b = rest.as_bytes();
     let mut i = 0;
     while i < b.len() {
-        if b[i] == b'%' && i + 2 < b.len() {
-            if let Ok(v) = u8::from_str_radix(std::str::from_utf8(&b[i + 1..i + 3]).ok()?, 16) {
-                out.push(v);
-                i += 3;
-                continue;
-            }
+        if b[i] == b'%' && i + 2 < b.len()
+            && let Ok(v) = u8::from_str_radix(std::str::from_utf8(&b[i + 1..i + 3]).ok()?, 16)
+        {
+            out.push(v);
+            i += 3;
+            continue;
         }
         out.push(b[i]);
         i += 1;
     }
     use std::os::unix::ffi::OsStringExt;
     Some(PathBuf::from(std::ffi::OsString::from_vec(out)))
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn decodes_file_uris() {
-        assert_eq!(super::file_uri_to_path("file:///home/a/Bild%201.png").unwrap(), std::path::Path::new("/home/a/Bild 1.png"));
-        assert_eq!(super::file_uri_to_path("file:///tmp/x%").unwrap(), std::path::Path::new("/tmp/x%"));
-        assert!(super::file_uri_to_path("https://x").is_none());
-    }
 }
 
 /// Whether captures that don't ask first (full screen, timed, record) may run: the
@@ -146,5 +136,15 @@ pub fn ask_screenshot_permission() -> bool {
             true
         }
         None => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn decodes_file_uris() {
+        assert_eq!(super::file_uri_to_path("file:///home/a/Bild%201.png").unwrap(), std::path::Path::new("/home/a/Bild 1.png"));
+        assert_eq!(super::file_uri_to_path("file:///tmp/x%").unwrap(), std::path::Path::new("/tmp/x%"));
+        assert!(super::file_uri_to_path("https://x").is_none());
     }
 }

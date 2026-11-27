@@ -66,7 +66,7 @@ pub(super) fn recent_files(dir: &Path, n: usize) -> Vec<PathBuf> {
             Some((e.metadata().ok()?.modified().ok()?, p))
         })
         .collect();
-    v.sort_by(|a, b| b.0.cmp(&a.0));
+    v.sort_by_key(|a| std::cmp::Reverse(a.0));
     v.into_iter().take(n).map(|(_, p)| p).collect()
 }
 
@@ -321,14 +321,14 @@ impl DyoSnap {
         let fmt = self.settings.video_format;
         let src_ext = v.path.extension().and_then(|e| e.to_str()).unwrap_or("mp4").to_lowercase();
         let ext = video_save_ext(v, fmt);
-        if !v.is_trimmed() && dir == self.settings.save_dir {
-            if let Some(saved) = v.saved.clone().filter(|p| p.extension().is_some_and(|e| e == ext.as_str())) {
-                if then_copy {
-                    platform::copy_file_ref(&saved);
-                    self.toast("Copied the video file", Some(saved));
-                }
-                return;
+        if !v.is_trimmed() && dir == self.settings.save_dir
+            && let Some(saved) = v.saved.clone().filter(|p| p.extension().is_some_and(|e| e == ext.as_str()))
+        {
+            if then_copy {
+                platform::copy_file_ref(&saved);
+                self.toast("Copied the video file", Some(saved));
             }
+            return;
         }
         let _ = std::fs::create_dir_all(&dir);
         // Reserve the name by making the file; the export then fills it. (ffmpeg opens the

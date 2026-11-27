@@ -175,10 +175,8 @@ impl DyoSnap {
             }
             // Before the picture: DyoSnap's own window is not open yet.
             #[cfg(target_os = "linux")]
-            if select_shot && kind == CaptureKind::Window {
-                if let Ok(mut w) = windows2.lock() {
-                    *w = platform::window_rects();
-                }
+            if select_shot && kind == CaptureKind::Window && let Ok(mut w) = windows2.lock() {
+                *w = platform::window_rects();
             }
             let _ = &windows2;
             let r = if mac_shot {
@@ -204,14 +202,12 @@ impl DyoSnap {
         // last on: a snap from a normal screen shows at its real size, one from Retina too.
         let mut ppp = capture_scale().unwrap_or(self.native_ppp);
         // "Shrink Retina snaps": store at normal (non-Retina) size.
-        if self.settings.shrink_retina && ppp > 1.01 {
-            if let Ok(img) = image::open(&path) {
-                let w = (img.width() as f32 / ppp).round().max(1.0) as u32;
-                let h = (img.height() as f32 / ppp).round().max(1.0) as u32;
-                let small = image::imageops::resize(&img.to_rgba8(), w, h, image::imageops::FilterType::Triangle);
-                let _ = small.save(&path);
-                ppp = 1.0;
-            }
+        if self.settings.shrink_retina && ppp > 1.01 && let Ok(img) = image::open(&path) {
+            let w = (img.width() as f32 / ppp).round().max(1.0) as u32;
+            let h = (img.height() as f32 / ppp).round().max(1.0) as u32;
+            let small = image::imageops::resize(&img.to_rgba8(), w, h, image::imageops::FilterType::Triangle);
+            let _ = small.save(&path);
+            ppp = 1.0;
         }
         // Keep a copy of the newest screenshot for "Open Latest Image".
         if let Some(latest) = latest_capture_path() {

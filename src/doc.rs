@@ -484,10 +484,10 @@ fn draw_shape(pm: &mut Pixmap, s: &Shape, font: &FontVec) {
         }
         Shape::Ellipse { a, b, style } => {
             let r = rect_of(*a, *b);
-            if let Some(rr) = tiny_skia::Rect::from_ltrb(r.min.x, r.min.y, r.max.x, r.max.y) {
-                if let Some(path) = PathBuilder::from_oval(rr) {
-                    pm.stroke_path(&path, &paint(style.color), &stroke(style.width), t, None);
-                }
+            if let Some(rr) = tiny_skia::Rect::from_ltrb(r.min.x, r.min.y, r.max.x, r.max.y)
+                && let Some(path) = PathBuilder::from_oval(rr)
+            {
+                pm.stroke_path(&path, &paint(style.color), &stroke(style.width), t, None);
             }
         }
         Shape::Pen { pts, style } => {
@@ -563,7 +563,7 @@ pub fn render(doc: &Doc, font: &FontVec, skip: Option<usize>) -> RgbaImage {
         return (*doc.base).clone();
     };
     // Premultiply alpha for tiny-skia.
-    for (dst, src) in pm.data_mut().chunks_exact_mut(4).zip(doc.base.as_raw().chunks_exact(4)) {
+    for (dst, src) in pm.data_mut().as_chunks_mut::<4>().0.iter_mut().zip(doc.base.as_raw().as_chunks::<4>().0) {
         let a = src[3] as u32;
         if a == 255 {
             dst.copy_from_slice(src);
@@ -580,7 +580,7 @@ pub fn render(doc: &Doc, font: &FontVec, skip: Option<usize>) -> RgbaImage {
         }
     }
     let mut data = pm.take();
-    for px in data.chunks_exact_mut(4) {
+    for px in data.as_chunks_mut::<4>().0 {
         let a = px[3] as u32;
         if a != 255 && a != 0 {
             px[0] = ((px[0] as u32 * 255 + a / 2) / a).min(255) as u8;
@@ -594,10 +594,8 @@ pub fn render(doc: &Doc, font: &FontVec, skip: Option<usize>) -> RgbaImage {
 /// Loads a font for text annotations: a bold system font if there is one.
 pub fn load_font() -> (FontVec, Vec<u8>) {
     for c in crate::platform::ANNOTATION_FONTS {
-        if let Ok(bytes) = std::fs::read(c) {
-            if let Ok(f) = FontVec::try_from_vec(bytes.clone()) {
-                return (f, bytes);
-            }
+        if let Ok(bytes) = std::fs::read(c) && let Ok(f) = FontVec::try_from_vec(bytes.clone()) {
+            return (f, bytes);
         }
     }
     let bytes = epaint_default_fonts::UBUNTU_LIGHT.to_vec();

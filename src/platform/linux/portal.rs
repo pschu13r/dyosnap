@@ -7,10 +7,10 @@ use std::sync::Once;
 pub fn register() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
-        if let Ok(id) = ashpd::AppID::try_from(super::APP_ID) {
-            if let Err(e) = pollster::block_on(ashpd::register_host_app(id)) {
-                log::info!(target: "dyosnap", "portal: could not register app id: {e}");
-            }
+        if let Ok(id) = ashpd::AppID::try_from(super::APP_ID)
+            && let Err(e) = pollster::block_on(ashpd::register_host_app(id))
+        {
+            log::info!(target: "dyosnap", "portal: could not register app id: {e}");
         }
     });
 }

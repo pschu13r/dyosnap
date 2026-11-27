@@ -173,10 +173,10 @@ impl DyoSnap {
             }
             Action::CaptureTo(n) => {
                 // A shortcut of a folder that was removed does nothing.
-                if let Some(dir) = self.settings.extra_dirs.iter().find(|d| d.id == n).map(|d| d.path.clone()) {
-                    if self.switch_choosing(ctx, a) {
-                        self.start_capture_to(ctx, n, Some(dir));
-                    }
+                if let Some(dir) = self.settings.extra_dirs.iter().find(|d| d.id == n).map(|d| d.path.clone())
+                    && self.switch_choosing(ctx, a)
+                {
+                    self.start_capture_to(ctx, n, Some(dir));
                 }
             }
             Action::Record => {
@@ -441,13 +441,11 @@ impl DyoSnap {
                 }
                 continue;
             }
-            if let AppEvent::Menu(id) = &ev {
-                if let Some(path) = id.strip_prefix("recent:") {
-                    let p = PathBuf::from(path);
-                    self.open_file(ctx, &p);
-                    self.show_window(ctx);
-                    continue;
-                }
+            if let AppEvent::Menu(id) = &ev && let Some(path) = id.strip_prefix("recent:") {
+                let p = PathBuf::from(path);
+                self.open_file(ctx, &p);
+                self.show_window(ctx);
+                continue;
             }
             let action = match ev {
                 AppEvent::Menu(id) => action_from_id(&id, self.settings.delay_secs),
@@ -467,109 +465,101 @@ impl DyoSnap {
             }
         }
 
-        if let Some(job) = &self.job {
-            if let Ok(res) = job.rx.try_recv() {
-                let (kind, for_record, job_action) = (job.kind, job.for_record, job.action);
-                let job_target = job.target.clone();
-                let select_shot = job.select_shot;
-                let (started, first_screen) = (job.started, job.first_screen);
-                let job_windows = job.windows.lock().map(|w| w.clone()).unwrap_or_default();
-                self.job = None;
-                match (res.first().cloned(), for_record || select_shot) {
-                    (Some(p), false) => self.handle_capture(ctx, p, job_target),
-                    (Some(_), true) if select_shot => {
-                        let screens = self.sel_screens(&res, first_screen);
-                        let previous = if kind == CaptureKind::Previous { self.last_area } else { None };
-                        // Without choosing: the previous area again, or the whole screen.
-                        let instant = match kind {
-                            CaptureKind::FullScreen | CaptureKind::Timed(_) => Some((Instant::now(), None)),
-                            _ => previous.map(|r| (Instant::now(), Some(r))),
-                        };
-                        if screens.is_empty() {
-                            platform::end_screen_session();
-                            self.show_window(ctx);
-                            self.toast_no_screen();
-                        } else {
-                            let mut sel = Select::new(job_action, screens, None, started);
-                            sel.shot = true;
-                            sel.target = job_target;
-                            sel.instant = instant;
-                            sel.windows = job_windows;
-                            self.select = Some(sel);
-                            ctx.send_viewport_cmd(ViewportCommand::RequestPaintWhileHidden);
-                        }
+        if let Some(job) = &self.job && let Ok(res) = job.rx.try_recv() {
+            let (kind, for_record, job_action) = (job.kind, job.for_record, job.action);
+            let job_target = job.target.clone();
+            let select_shot = job.select_shot;
+            let (started, first_screen) = (job.started, job.first_screen);
+            let job_windows = job.windows.lock().map(|w| w.clone()).unwrap_or_default();
+            self.job = None;
+            match (res.first().cloned(), for_record || select_shot) {
+                (Some(p), false) => self.handle_capture(ctx, p, job_target),
+                (Some(_), true) if select_shot => {
+                    let screens = self.sel_screens(&res, first_screen);
+                    let previous = if kind == CaptureKind::Previous { self.last_area } else { None };
+                    // Without choosing: the previous area again, or the whole screen.
+                    let instant = match kind {
+                        CaptureKind::FullScreen | CaptureKind::Timed(_) => Some((Instant::now(), None)),
+                        _ => previous.map(|r| (Instant::now(), Some(r))),
+                    };
+                    if screens.is_empty() {
+                        platform::end_screen_session();
+                        self.show_window(ctx);
+                        self.toast_no_screen();
+                    } else {
+                        let mut sel = Select::new(job_action, screens, None, started);
+                        sel.shot = true;
+                        sel.target = job_target;
+                        sel.instant = instant;
+                        sel.windows = job_windows;
+                        self.select = Some(sel);
+                        ctx.send_viewport_cmd(ViewportCommand::RequestPaintWhileHidden);
                     }
-                    (Some(_), true) => {
-                        let screens = self.sel_screens(&res, 0);
-                        if screens.is_empty() {
-                            self.show_window(ctx);
-                            self.perm_prompt = !platform::screenshot_allowed();
-                            self.toast_no_screen();
-                        } else {
-                            self.select = Some(Select::for_record(job_action, screens, started));
-                            ctx.send_viewport_cmd(ViewportCommand::RequestPaintWhileHidden);
-                        }
-                    }
-                    (None, true) => {
+                }
+                (Some(_), true) => {
+                    let screens = self.sel_screens(&res, 0);
+                    if screens.is_empty() {
                         self.show_window(ctx);
                         self.perm_prompt = !platform::screenshot_allowed();
                         self.toast_no_screen();
+                    } else {
+                        self.select = Some(Select::for_record(job_action, screens, started));
+                        ctx.send_viewport_cmd(ViewportCommand::RequestPaintWhileHidden);
                     }
-                    (None, false) => {
-                        let asks = matches!(kind, CaptureKind::Area | CaptureKind::Previous | CaptureKind::Window);
-                        if !asks && !platform::screenshot_allowed() {
-                            self.perm_prompt = true;
-                            self.show_window(ctx);
-                        }
+                }
+                (None, true) => {
+                    self.show_window(ctx);
+                    self.perm_prompt = !platform::screenshot_allowed();
+                    self.toast_no_screen();
+                }
+                (None, false) => {
+                    let asks = matches!(kind, CaptureKind::Area | CaptureKind::Previous | CaptureKind::Window);
+                    if !asks && !platform::screenshot_allowed() {
+                        self.perm_prompt = true;
+                        self.show_window(ctx);
                     }
                 }
             }
         }
 
-        if let Some(rx) = &self.finishing {
-            if let Ok(res) = rx.try_recv() {
-                self.finishing = None;
-                match res {
-                    Ok(path) => {
-                        let mut v = VideoView::new(path, self.ffmpeg.clone(), self.rec_started_name.clone(), 0.0);
-                        v.seek(ctx, 0.0);
-                        self.fit_video_window(v.size);
-                        self.ed = None;
-                        self.video = Some(v);
-                        if self.settings.autosave_movies {
-                            let movies = dirs::video_dir()
-                                .or_else(|| dirs::home_dir().map(|h| h.join("Movies")))
-                                .unwrap_or_else(|| self.settings.save_dir.clone());
-                            self.save_video_to(false, movies);
-                        }
+        if let Some(rx) = &self.finishing && let Ok(res) = rx.try_recv() {
+            self.finishing = None;
+            match res {
+                Ok(path) => {
+                    let mut v = VideoView::new(path, self.ffmpeg.clone(), self.rec_started_name.clone(), 0.0);
+                    v.seek(ctx, 0.0);
+                    self.fit_video_window(v.size);
+                    self.ed = None;
+                    self.video = Some(v);
+                    if self.settings.autosave_movies {
+                        let movies = dirs::video_dir()
+                            .or_else(|| dirs::home_dir().map(|h| h.join("Movies")))
+                            .unwrap_or_else(|| self.settings.save_dir.clone());
+                        self.save_video_to(false, movies);
                     }
-                    Err(e) => self.toast(e, None),
                 }
-                self.show_window(ctx);
+                Err(e) => self.toast(e, None),
             }
+            self.show_window(ctx);
         }
 
-        if let Some(rx) = &self.video_saving {
-            if let Ok(res) = rx.try_recv() {
-                self.video_saving = None;
-                match res {
-                    Ok(p) => {
-                        if let Some(v) = &mut self.video {
-                            if !v.is_trimmed() || true {
-                                v.saved = Some(p.clone());
-                            }
-                        }
-                        if self.copy_after_save {
-                            platform::copy_file_ref(&p);
-                            self.toast("Saved and copied the video file", Some(p));
-                        } else {
-                            self.toast(format!("Saved to {}", short_path(&p)), Some(p));
-                        }
-                        self.recent_dirty = true;
-                self.tray_menu_dirty = true;
+        if let Some(rx) = &self.video_saving && let Ok(res) = rx.try_recv() {
+            self.video_saving = None;
+            match res {
+                Ok(p) => {
+                    if let Some(v) = &mut self.video {
+                        v.saved = Some(p.clone());
                     }
-                    Err(e) => self.toast(e, None),
+                    if self.copy_after_save {
+                        platform::copy_file_ref(&p);
+                        self.toast("Saved and copied the video file", Some(p));
+                    } else {
+                        self.toast(format!("Saved to {}", short_path(&p)), Some(p));
+                    }
+                    self.recent_dirty = true;
+            self.tray_menu_dirty = true;
                 }
+                Err(e) => self.toast(e, None),
             }
         }
 

@@ -56,16 +56,14 @@ fn read_png(pb: &NSPasteboard, dest: &Path) -> bool {
 fn write_items(pb: &NSPasteboard, png: Option<&Path>, tiff: bool, path: Option<&Path>) -> bool {
     let item = NSPasteboardItem::new();
     let mut any = false;
-    if let Some(png) = png {
-        if let Ok(bytes) = std::fs::read(png) {
-            let data = NSData::from_vec(bytes);
-            if tiff {
-                if let Some(t) = NSBitmapImageRep::imageRepWithData(&data).and_then(|rep| rep.TIFFRepresentation()) {
-                    any |= item.setData_forType(&t, unsafe { NSPasteboardTypeTIFF });
-                }
-            } else {
-                any |= item.setData_forType(&data, unsafe { NSPasteboardTypePNG });
+    if let Some(png) = png && let Ok(bytes) = std::fs::read(png) {
+        let data = NSData::from_vec(bytes);
+        if tiff {
+            if let Some(t) = NSBitmapImageRep::imageRepWithData(&data).and_then(|rep| rep.TIFFRepresentation()) {
+                any |= item.setData_forType(&t, unsafe { NSPasteboardTypeTIFF });
             }
+        } else {
+            any |= item.setData_forType(&data, unsafe { NSPasteboardTypePNG });
         }
     }
     if let Some(p) = path {

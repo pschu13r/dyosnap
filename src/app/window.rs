@@ -104,10 +104,8 @@ impl DyoSnap {
 
     /// What the Preferences window asked for.
     pub(super) fn handle_prefs_out(&mut self, ctx: &egui::Context, out: crate::prefs::PrefsOut) {
-        if out.configure_keys {
-            if let Some(h) = &self.hotkeys {
-                h.configure();
-            }
+        if out.configure_keys && let Some(h) = &self.hotkeys {
+            h.configure();
         }
         if out.capture_started {
             // Let the next key press reach the settings window instead of starting a capture.
@@ -154,13 +152,9 @@ impl DyoSnap {
     /// Linux: take the screen size and scale from the system. While the window is closed,
     /// egui knows neither, and the defaults are the Mac's (a Retina screen).
     pub(super) fn refresh_screen(&mut self) {
-        if cfg!(target_os = "linux") {
-            if let Some(d) = platform::displays().first() {
-                if d.bounds.width() > 100.0 {
-                    self.monitor = d.bounds.size();
-                    self.native_ppp = d.scale.max(1.0);
-                }
-            }
+        if cfg!(target_os = "linux") && let Some(d) = platform::displays().first() && d.bounds.width() > 100.0 {
+            self.monitor = d.bounds.size();
+            self.native_ppp = d.scale.max(1.0);
         }
     }
 

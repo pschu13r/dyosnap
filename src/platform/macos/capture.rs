@@ -77,10 +77,8 @@ fn register(child: &Child) {
 
 /// Forgets the pid, unless a newer capture has registered its own already.
 fn forget(child: &Child) {
-    if let Ok(mut p) = RUNNING.lock() {
-        if *p == Some(child.id()) {
-            *p = None;
-        }
+    if let Ok(mut p) = RUNNING.lock() && *p == Some(child.id()) {
+        *p = None;
     }
 }
 
@@ -209,56 +207,6 @@ fn area_from_drag(start: Pos2, end: Pos2, px: (u32, u32), displays: &[Display]) 
     (r.width() >= 1.0 && r.height() >= 1.0).then_some(r)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use egui::pos2;
-
-    fn retina() -> Vec<Display> {
-        vec![Display { bounds: Rect::from_min_size(pos2(0.0, 0.0), vec2(1512.0, 982.0)), scale: 2.0 }]
-    }
-
-    #[test]
-    fn area_from_a_drag_in_any_direction() {
-        let d = retina();
-        let want = Rect::from_min_max(pos2(100.0, 200.0), pos2(400.0, 350.0));
-        // Down-right, up-left, and one where Space moved the area on the way.
-        assert_eq!(area_from_drag(pos2(100.0, 200.0), pos2(400.0, 350.0), (600, 300), &d), Some(want));
-        assert_eq!(area_from_drag(pos2(400.0, 350.0), pos2(100.0, 200.0), (600, 300), &d), Some(want));
-        assert_eq!(area_from_drag(pos2(50.0, 50.0), pos2(400.0, 350.0), (600, 300), &d), Some(want));
-    }
-
-    /// Needs a screen and the permission to capture it: run with `--ignored`. Checks that the
-    /// BMP of `screencapture` loads like the PNG of the same screen (colours, alpha, not flipped). Two captures differ a little (menu bar blur, clock), so the colours may be off by some.
-    #[test]
-    #[ignore]
-    fn bmp_matches_png() {
-        let dir = std::env::temp_dir();
-        let (bmp, png) = (dir.join("dyosnap-test.bmp"), dir.join("dyosnap-test.png"));
-        for (t, f) in [("bmp", &bmp), ("png", &png)] {
-            let ok = Command::new("/usr/sbin/screencapture").args(["-x", "-t", t, "-D", "1"]).arg(f).status().unwrap().success();
-            assert!(ok);
-        }
-        let (a, b) = (image::open(&bmp).unwrap().to_rgba8(), image::open(&png).unwrap().to_rgba8());
-        let _ = (std::fs::remove_file(&bmp), std::fs::remove_file(&png));
-        assert_eq!(a.dimensions(), b.dimensions());
-        let (w, h) = a.dimensions();
-        let mut far = 0;
-        for (x, y) in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1), (w / 2, h / 2), (w / 4, h / 3), (w / 3, h * 3 / 4)] {
-            let (p, q) = (a.get_pixel(x, y).0, b.get_pixel(x, y).0);
-            println!("{x},{y}: bmp {p:?} png {q:?}");
-            assert_eq!(p[3], 255);
-            far += p[..3].iter().zip(&q[..3]).filter(|(m, n)| m.abs_diff(**n) > 40).count();
-        }
-        assert_eq!(far, 0, "colours differ");
-    }
-
-    #[test]
-    fn a_click_is_no_area() {
-        assert_eq!(area_from_drag(pos2(100.0, 200.0), pos2(101.0, 200.0), (800, 600), &retina()), None);
-    }
-}
-
 /// Takes one silent picture of every screen (main screen first), to choose the record
 /// area on. BMP, not PNG: it is faster to write and
 /// needs no inflate when loaded. `cursor` is for systems that share the screen first (Linux).
@@ -330,4 +278,54 @@ pub fn screenshot_allowed() -> bool {
 /// Asks for that permission. Nothing to do on macOS.
 pub fn ask_screenshot_permission() -> bool {
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::pos2;
+
+    fn retina() -> Vec<Display> {
+        vec![Display { bounds: Rect::from_min_size(pos2(0.0, 0.0), vec2(1512.0, 982.0)), scale: 2.0 }]
+    }
+
+    #[test]
+    fn area_from_a_drag_in_any_direction() {
+        let d = retina();
+        let want = Rect::from_min_max(pos2(100.0, 200.0), pos2(400.0, 350.0));
+        // Down-right, up-left, and one where Space moved the area on the way.
+        assert_eq!(area_from_drag(pos2(100.0, 200.0), pos2(400.0, 350.0), (600, 300), &d), Some(want));
+        assert_eq!(area_from_drag(pos2(400.0, 350.0), pos2(100.0, 200.0), (600, 300), &d), Some(want));
+        assert_eq!(area_from_drag(pos2(50.0, 50.0), pos2(400.0, 350.0), (600, 300), &d), Some(want));
+    }
+
+    /// Needs a screen and the permission to capture it: run with `--ignored`. Checks that the
+    /// BMP of `screencapture` loads like the PNG of the same screen (colours, alpha, not flipped). Two captures differ a little (menu bar blur, clock), so the colours may be off by some.
+    #[test]
+    #[ignore]
+    fn bmp_matches_png() {
+        let dir = std::env::temp_dir();
+        let (bmp, png) = (dir.join("dyosnap-test.bmp"), dir.join("dyosnap-test.png"));
+        for (t, f) in [("bmp", &bmp), ("png", &png)] {
+            let ok = Command::new("/usr/sbin/screencapture").args(["-x", "-t", t, "-D", "1"]).arg(f).status().unwrap().success();
+            assert!(ok);
+        }
+        let (a, b) = (image::open(&bmp).unwrap().to_rgba8(), image::open(&png).unwrap().to_rgba8());
+        let _ = (std::fs::remove_file(&bmp), std::fs::remove_file(&png));
+        assert_eq!(a.dimensions(), b.dimensions());
+        let (w, h) = a.dimensions();
+        let mut far = 0;
+        for (x, y) in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1), (w / 2, h / 2), (w / 4, h / 3), (w / 3, h * 3 / 4)] {
+            let (p, q) = (a.get_pixel(x, y).0, b.get_pixel(x, y).0);
+            println!("{x},{y}: bmp {p:?} png {q:?}");
+            assert_eq!(p[3], 255);
+            far += p[..3].iter().zip(&q[..3]).filter(|(m, n)| m.abs_diff(**n) > 40).count();
+        }
+        assert_eq!(far, 0, "colours differ");
+    }
+
+    #[test]
+    fn a_click_is_no_area() {
+        assert_eq!(area_from_drag(pos2(100.0, 200.0), pos2(101.0, 200.0), (800, 600), &retina()), None);
+    }
 }

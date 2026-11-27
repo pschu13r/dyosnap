@@ -24,8 +24,7 @@ fn rounded_rect(r: Rect, radius: f32) -> Option<tiny_skia::Path> {
 fn draw(size: u32) -> Pixmap {
     let mut pm = Pixmap::new(size, size).expect("size");
     let t = Transform::from_scale(size as f32 / 1024.0, size as f32 / 1024.0);
-    let mut paint = Paint::default();
-    paint.anti_alias = true;
+    let mut paint = Paint { anti_alias: true, ..Default::default() };
 
     // Body: Apple's grid puts an 824 px square with ~185 px corners in the 1024 canvas.
     let body = Rect::from_xywh(100.0, 100.0, 824.0, 824.0).unwrap();

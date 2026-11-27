@@ -187,13 +187,11 @@ impl Editor {
     }
 
     pub fn delete_selected(&mut self) {
-        if let Some(i) = self.selected.take() {
-            if i < self.doc.shapes.len() {
-                let before = self.doc.clone();
-                self.doc.shapes.remove(i);
-                self.push_undo(before);
-                self.changed();
-            }
+        if let Some(i) = self.selected.take() && i < self.doc.shapes.len() {
+            let before = self.doc.clone();
+            self.doc.shapes.remove(i);
+            self.push_undo(before);
+            self.changed();
         }
     }
 
@@ -211,15 +209,14 @@ impl Editor {
     }
 
     pub fn restyle_selected(&mut self, style: Style) {
-        if let Some(i) = self.selected {
-            if let Some(s) = self.doc.shapes.get(i) {
-                if s.style().is_some() && s.style() != Some(style) {
-                    let before = self.doc.clone();
-                    self.doc.shapes[i].set_style(style);
-                    self.push_undo(before);
-                    self.changed();
-                }
-            }
+        if let Some(i) = self.selected
+            && let Some(s) = self.doc.shapes.get(i)
+            && s.style().is_some() && s.style() != Some(style)
+        {
+            let before = self.doc.clone();
+            self.doc.shapes[i].set_style(style);
+            self.push_undo(before);
+            self.changed();
         }
         if let Some(t) = &mut self.text {
             t.style = style;
@@ -263,13 +260,11 @@ impl Editor {
 
     pub fn apply_crop(&mut self) {
         self.reset_view();
-        if let Some(r) = self.crop.take() {
-            if let Some(d) = doc::crop(&self.doc, r) {
-                let before = std::mem::replace(&mut self.doc, d);
-                self.push_undo(before);
-                self.selected = None;
-                self.changed();
-            }
+        if let Some(r) = self.crop.take() && let Some(d) = doc::crop(&self.doc, r) {
+            let before = std::mem::replace(&mut self.doc, d);
+            self.push_undo(before);
+            self.selected = None;
+            self.changed();
         }
     }
 
@@ -388,39 +383,37 @@ impl Editor {
                 self.drag = Some(Drag::New { start, cur: start, pts: vec![start] });
             }
         }
-        if let Some(p) = resp.interact_pointer_pos().map(to_img) {
-            if resp.dragged() {
-                let shift = ui.input(|i| i.modifiers.shift);
-                match &mut self.drag {
-                    Some(Drag::New { start, cur, pts }) => {
-                        let mut p = p;
-                        if shift && matches!(tool, Tool::Rect | Tool::Ellipse | Tool::Blur) {
-                            let d = p - *start;
-                            let m = d.x.abs().max(d.y.abs());
-                            p = *start + vec2(m * d.x.signum(), m * d.y.signum());
-                        }
-                        *cur = p;
-                        if pts.last().is_none_or(|l| l.distance(p) > 1.0 / zoom) {
-                            pts.push(p);
-                        }
+        if let Some(p) = resp.interact_pointer_pos().map(to_img) && resp.dragged() {
+            let shift = ui.input(|i| i.modifiers.shift);
+            match &mut self.drag {
+                Some(Drag::New { start, cur, pts }) => {
+                    let mut p = p;
+                    if shift && matches!(tool, Tool::Rect | Tool::Ellipse | Tool::Blur) {
+                        let d = p - *start;
+                        let m = d.x.abs().max(d.y.abs());
+                        p = *start + vec2(m * d.x.signum(), m * d.y.signum());
                     }
-                    Some(Drag::Move { idx, last, moved, .. }) => {
-                        let d = p - *last;
-                        if d.length_sq() > 0.0 {
-                            if let Some(s) = self.doc.shapes.get_mut(*idx) {
-                                s.translate(d);
-                            }
-                            *last = p;
-                            *moved = true;
-                        }
+                    *cur = p;
+                    if pts.last().is_none_or(|l| l.distance(p) > 1.0 / zoom) {
+                        pts.push(p);
                     }
-                    Some(Drag::Crop { start }) => {
-                        let r = Rect::from_two_pos(*start, p)
-                            .intersect(Rect::from_min_size(Pos2::ZERO, size));
-                        self.crop = Some(r);
-                    }
-                    None => {}
                 }
+                Some(Drag::Move { idx, last, moved, .. }) => {
+                    let d = p - *last;
+                    if d.length_sq() > 0.0 {
+                        if let Some(s) = self.doc.shapes.get_mut(*idx) {
+                            s.translate(d);
+                        }
+                        *last = p;
+                        *moved = true;
+                    }
+                }
+                Some(Drag::Crop { start }) => {
+                    let r = Rect::from_two_pos(*start, p)
+                        .intersect(Rect::from_min_size(Pos2::ZERO, size));
+                    self.crop = Some(r);
+                }
+                None => {}
             }
         }
         if resp.drag_stopped() {
@@ -465,6 +458,8 @@ impl Editor {
                     self.skip = None;
                     self.changed();
                 }
+                // Folding this `if` into a match guard would make the arm non-exhaustive.
+                #[allow(clippy::collapsible_match)]
                 Some(Drag::Crop { .. }) => {
                     if self.crop.is_some_and(|r| r.width() < 4.0 || r.height() < 4.0) {
                         self.crop = None;
@@ -473,46 +468,43 @@ impl Editor {
                 None => {}
             }
         }
-        if resp.clicked() {
-            if let Some(p) = resp.interact_pointer_pos().map(to_img) {
-                let was_editing = self.text.is_some();
-                self.commit_text();
-                match hit(p, &self.doc) {
-                    Some(i) if tool != Tool::Crop => self.selected = Some(i),
-                    _ => {
-                        self.selected = None;
-                        if !was_editing {
-                            match tool {
-                                Tool::Text => self.start_text(p, None, style, None),
-                                Tool::Callout => {
-                                    self.start_text(p - vec2(80.0, 60.0) * self.ppp, Some(p), style, None)
-                                }
-                                Tool::Step => {
-                                    let s = self.new_step(p, style);
-                                    self.add_shape(s);
-                                }
-                                _ => {}
+        if resp.clicked() && let Some(p) = resp.interact_pointer_pos().map(to_img) {
+            let was_editing = self.text.is_some();
+            self.commit_text();
+            match hit(p, &self.doc) {
+                Some(i) if tool != Tool::Crop => self.selected = Some(i),
+                _ => {
+                    self.selected = None;
+                    if !was_editing {
+                        match tool {
+                            Tool::Text => self.start_text(p, None, style, None),
+                            Tool::Callout => {
+                                self.start_text(p - vec2(80.0, 60.0) * self.ppp, Some(p), style, None)
                             }
+                            Tool::Step => {
+                                let s = self.new_step(p, style);
+                                self.add_shape(s);
+                            }
+                            _ => {}
                         }
                     }
                 }
             }
         }
-        if resp.double_clicked() {
-            if let Some(p) = resp.interact_pointer_pos().map(to_img) {
-                if let Some(i) = hit(p, &self.doc) {
-                    match self.doc.shapes[i].clone() {
-                        Shape::Text { pos, text, style } => {
-                            self.start_text(pos, None, style, Some(i));
-                            self.text.as_mut().unwrap().text = text;
-                        }
-                        Shape::Callout { tip, pos, text, style } => {
-                            self.start_text(pos, Some(tip), style, Some(i));
-                            self.text.as_mut().unwrap().text = text;
-                        }
-                        _ => {}
-                    }
+        if resp.double_clicked()
+            && let Some(p) = resp.interact_pointer_pos().map(to_img)
+            && let Some(i) = hit(p, &self.doc)
+        {
+            match self.doc.shapes[i].clone() {
+                Shape::Text { pos, text, style } => {
+                    self.start_text(pos, None, style, Some(i));
+                    self.text.as_mut().unwrap().text = text;
                 }
+                Shape::Callout { tip, pos, text, style } => {
+                    self.start_text(pos, Some(tip), style, Some(i));
+                    self.text.as_mut().unwrap().text = text;
+                }
+                _ => {}
             }
         }
 
@@ -537,21 +529,15 @@ impl Editor {
                 paint_preview(&painter, &s, &to_screen, zoom, font);
             }
         }
-        if let Some(Drag::Move { idx, .. }) = &self.drag {
-            if let Some(s) = self.doc.shapes.get(*idx) {
-                paint_preview(&painter, s, &to_screen, zoom, font);
-            }
+        if let Some(Drag::Move { idx, .. }) = &self.drag && let Some(s) = self.doc.shapes.get(*idx) {
+            paint_preview(&painter, s, &to_screen, zoom, font);
         }
 
         // Selection outline
-        if let Some(i) = self.selected {
-            if self.text.is_none() {
-                if let Some(s) = self.doc.shapes.get(i) {
-                    let b = s.bounds(font);
-                    let r = Rect::from_min_max(to_screen(b.min), to_screen(b.max)).expand(4.0);
-                    dashed_rect(&painter, r, Color32::from_rgb(90, 140, 255));
-                }
-            }
+        if let Some(i) = self.selected && self.text.is_none() && let Some(s) = self.doc.shapes.get(i) {
+            let b = s.bounds(font);
+            let r = Rect::from_min_max(to_screen(b.min), to_screen(b.max)).expand(4.0);
+            dashed_rect(&painter, r, Color32::from_rgb(90, 140, 255));
         }
 
         // Crop overlay

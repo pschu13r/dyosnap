@@ -39,10 +39,8 @@ pub fn reveal_path(path: &Path) {
         .await
     })
     .is_ok();
-    if !shown {
-        if let Some(dir) = path.parent() {
-            open_path(dir);
-        }
+    if !shown && let Some(dir) = path.parent() {
+        open_path(dir);
     }
 }
 
@@ -100,12 +98,11 @@ pub fn editor_label(app: &str) -> String {
     if app.trim().is_empty() {
         return "Default App".into();
     }
-    if app.ends_with(".desktop") {
-        if let Ok(text) = std::fs::read_to_string(app) {
-            if let Some(n) = text.lines().find_map(|l| l.strip_prefix("Name=")) {
-                return n.trim().to_string();
-            }
-        }
+    if app.ends_with(".desktop")
+        && let Ok(text) = std::fs::read_to_string(app)
+        && let Some(n) = text.lines().find_map(|l| l.strip_prefix("Name="))
+    {
+        return n.trim().to_string();
     }
     Path::new(app).file_stem().and_then(|s| s.to_str()).unwrap_or(app).to_string()
 }

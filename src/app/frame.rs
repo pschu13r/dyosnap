@@ -24,10 +24,8 @@ impl eframe::App for DyoSnap {
             }
         }
         // Remember the screen size while the main window is around.
-        if let Some(m) = ctx.input(|i| i.viewport().monitor_size) {
-            if m.x > 100.0 {
-                self.monitor = m;
-            }
+        if let Some(m) = ctx.input(|i| i.viewport().monitor_size) && m.x > 100.0 {
+            self.monitor = m;
         }
         if let Some(p) = ctx.input(|i| i.viewport().native_pixels_per_point) {
             self.native_ppp = p;
@@ -44,29 +42,23 @@ impl eframe::App for DyoSnap {
         self.handle_events(ctx);
         self.reset_cursor_after_capture(ctx);
         if test_env("LS_TEST_AUTOREC") {
-            if let Some(r) = &self.recording {
-                if r.rec.elapsed() > Duration::from_secs(3) {
-                    eprintln!("TEST rect={:?} screen={:?}", r.rect, r.screen);
-                    self.run_action(ctx, Action::FinishRec);
-                }
+            if let Some(r) = &self.recording && r.rec.elapsed() > Duration::from_secs(3) {
+                eprintln!("TEST rect={:?} screen={:?}", r.rect, r.screen);
+                self.run_action(ctx, Action::FinishRec);
             }
-            if let Some(v) = &self.video {
-                if !self.test_dialog_done {
-                    self.test_dialog_done = true;
-                    eprintln!("TEST video={}", v.path.display());
-                }
+            if let Some(v) = &self.video && !self.test_dialog_done {
+                self.test_dialog_done = true;
+                eprintln!("TEST video={}", v.path.display());
             }
         }
         if test_env("LS_TEST_RECORD") && !self.test_prefs_done {
             self.test_prefs_done = true;
             self.run_action(ctx, Action::Record);
         }
-        if test_env("LS_TEST_EDIT") && !self.test_dialog_done {
-            if let Some(ed) = &mut self.ed {
-                self.test_dialog_done = true;
-                let font = self.font.clone();
-                ed.apply_resize(&font, 300, 200);
-            }
+        if test_env("LS_TEST_EDIT") && !self.test_dialog_done && let Some(ed) = &mut self.ed {
+            self.test_dialog_done = true;
+            let font = self.font.clone();
+            ed.apply_resize(&font, 300, 200);
         }
         self.auto_copy_edits(ctx);
         self.test_open_prefs(ctx);
@@ -280,10 +272,8 @@ impl eframe::App for DyoSnap {
         }
         // Linux: frame and control bar are layer surfaces (see platform::RecFrame); GNOME
         // has neither, there the recording is controlled from the tray and the shortcuts.
-        if !cfg!(target_os = "linux") {
-            if let Some(a) = self.recording_overlays(&ctx) {
-                action = Some(a);
-            }
+        if !cfg!(target_os = "linux") && let Some(a) = self.recording_overlays(&ctx) {
+            action = Some(a);
         }
 
         // Settings, in a window of their own.
@@ -337,10 +327,10 @@ impl eframe::App for DyoSnap {
                 let r = Rect::from_center_size(pos2(rect.center().x, rect.max.y - 34.0 - (size.y - 36.0).max(0.0) / 2.0), size);
                 ui.painter().rect_filled(r, 8.0, Color32::from_black_alpha(215));
                 ui.painter().galley(r.min + vec2(14.0, 8.0), galley, Color32::WHITE);
-                if let Some(p) = t.path.clone() {
-                    if ui.interact(r, Id::new("toast"), Sense::click()).on_hover_text(format!("Show in {}", platform::FILE_MANAGER)).clicked() {
-                        platform::reveal_path(&p);
-                    }
+                if let Some(p) = t.path.clone()
+                    && ui.interact(r, Id::new("toast"), Sense::click()).on_hover_text(format!("Show in {}", platform::FILE_MANAGER)).clicked()
+                {
+                    platform::reveal_path(&p);
                 }
                 if let Some(a) = &t.action {
                     let b = Rect::from_center_size(pos2(r.center().x, r.max.y - 8.0 - 12.0), vec2(btn_w, 24.0));

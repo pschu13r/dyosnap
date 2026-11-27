@@ -39,16 +39,14 @@ fn ring_pixels(step: u32, paused: bool) -> Vec<u8> {
     let Some(mut pm) = Pixmap::new(n, n) else { return vec![0; (n * n * 4) as usize] };
     let (r, g, b) = if paused { (255, 170, 0) } else { (230, 40, 40) };
     let c = n as f32 / 2.0;
-    let mut paint = Paint::default();
-    paint.anti_alias = true;
+    let mut paint = Paint { anti_alias: true, ..Default::default() };
     paint.set_color_rgba8(r, g, b, 255);
     if let Some(dot) = PathBuilder::from_circle(c, c, 9.0) {
         pm.fill_path(&dot, &paint, FillRule::Winding, Transform::identity(), None);
     }
     let stroke = Stroke { width: 4.0, line_cap: LineCap::Butt, ..Default::default() };
     // The track, faint, then the part of the minute that has passed.
-    let mut track = Paint::default();
-    track.anti_alias = true;
+    let mut track = Paint { anti_alias: true, ..Default::default() };
     track.set_color_rgba8(r, g, b, 70);
     if let Some(ring) = PathBuilder::from_circle(c, c, 17.0) {
         pm.stroke_path(&ring, &track, &stroke, Transform::identity(), None);
@@ -68,7 +66,7 @@ fn ring_pixels(step: u32, paused: bool) -> Vec<u8> {
     }
     // tiny-skia is premultiplied; the image crate and the tray want straight alpha.
     let mut px = pm.take();
-    for p in px.chunks_exact_mut(4) {
+    for p in px.as_chunks_mut::<4>().0 {
         let a = p[3] as u32;
         if a > 0 && a < 255 {
             for v in &mut p[..3] {
@@ -132,7 +130,7 @@ impl ksni::Tray for Sni {
     fn icon_pixmap(&self) -> Vec<ksni::Icon> {
         // RGBA → ARGB, as the spec wants.
         let mut data = if self.recording { ring_pixels(self.progress.0, self.progress.1) } else { tray_pixels(false, true) };
-        for px in data.chunks_exact_mut(4) {
+        for px in data.as_chunks_mut::<4>().0 {
             px.rotate_right(1);
         }
         vec![ksni::Icon { width: TRAY_PX as i32, height: TRAY_PX as i32, data }]
@@ -412,10 +410,10 @@ async fn run(rx: std::sync::mpsc::Receiver<Cmd>, shared: Shared) {
     while let Ok(cmd) = rx.recv() {
         let mut keys = match cmd {
             Cmd::Configure => {
-                if let Some(s) = &session {
-                    if let Err(e) = portal.configure_shortcuts(s, None, Default::default()).await {
-                        log::warn!(target: "dyosnap", "configure shortcuts: {e}");
-                    }
+                if let Some(s) = &session
+                    && let Err(e) = portal.configure_shortcuts(s, None, Default::default()).await
+                {
+                    log::warn!(target: "dyosnap", "configure shortcuts: {e}");
                 }
                 continue;
             }

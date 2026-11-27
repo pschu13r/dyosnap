@@ -229,8 +229,7 @@ pub fn tray_pixels(recording: bool, light: bool) -> Vec<u8> {
     use tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Transform};
     let n = TRAY_PX;
     let Some(mut pm) = Pixmap::new(n, n) else { return vec![0; (n * n * 4) as usize] };
-    let mut paint = Paint::default();
-    paint.anti_alias = true;
+    let mut paint = Paint { anti_alias: true, ..Default::default() };
     if recording {
         paint.set_color_rgba8(230, 40, 40, 255);
         if let Some(c) = PathBuilder::from_circle(22.0, 22.0, 13.0) {

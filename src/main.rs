@@ -224,18 +224,16 @@ impl log::Log for WarningLog {
         if !self.enabled(r.metadata()) {
             return;
         }
-        if let Ok(mut f) = self.0.lock() {
-            if let Some(f) = f.as_mut() {
-                use std::io::Write;
-                let _ = writeln!(
-                    f,
-                    "{} {} {}: {}",
-                    chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
-                    r.level(),
-                    r.target(),
-                    r.args()
-                );
-            }
+        if let Ok(mut f) = self.0.lock() && let Some(f) = f.as_mut() {
+            use std::io::Write;
+            let _ = writeln!(
+                f,
+                "{} {} {}: {}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
+                r.level(),
+                r.target(),
+                r.args()
+            );
         }
     }
     fn flush(&self) {}

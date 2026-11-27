@@ -196,15 +196,15 @@ impl DyoSnap {
             if self.video.is_none() {
                 group(ui, 2, TOOL_W, BAR_ITEM_H, |ui| {
                     let (cu, cr) = self.ed.as_ref().map(|e| (e.can_undo(), e.can_redo())).unwrap_or((false, false));
-                    if icon_button(ui, Icon::Undo, false, cu, vec2(TOOL_W, BAR_ITEM_H - 2.0), &format!("Undo ({})", crate::settings::keys_text(false, "Z"))).clicked() {
-                        if let Some(e) = &mut self.ed {
-                            e.undo();
-                        }
+                    if icon_button(ui, Icon::Undo, false, cu, vec2(TOOL_W, BAR_ITEM_H - 2.0), &format!("Undo ({})", crate::settings::keys_text(false, "Z"))).clicked()
+                        && let Some(e) = &mut self.ed
+                    {
+                        e.undo();
                     }
-                    if icon_button(ui, Icon::Redo, false, cr, vec2(TOOL_W, BAR_ITEM_H - 2.0), &format!("Redo ({})", crate::settings::keys_text(true, "Z"))).clicked() {
-                        if let Some(e) = &mut self.ed {
-                            e.redo();
-                        }
+                    if icon_button(ui, Icon::Redo, false, cr, vec2(TOOL_W, BAR_ITEM_H - 2.0), &format!("Redo ({})", crate::settings::keys_text(true, "Z"))).clicked()
+                        && let Some(e) = &mut self.ed
+                    {
+                        e.redo();
                     }
                 });
             }
@@ -337,12 +337,11 @@ impl DyoSnap {
                 self.toast("Copied the file path", None);
             }
         }
-        if self.video.is_some() {
-            if let Some(v) = &self.video {
-                if ui.button(format!("Open in {}", platform::VIDEO_PLAYER)).clicked() {
-                    platform::open_path(v.saved.as_ref().unwrap_or(&v.path));
-                }
-            }
+        if self.video.is_some()
+            && let Some(v) = &self.video
+            && ui.button(format!("Open in {}", platform::VIDEO_PLAYER)).clicked()
+        {
+            platform::open_path(v.saved.as_ref().unwrap_or(&v.path));
         }
         if self.ed.is_some() || self.video.is_some() {
             if ui.add(egui::Button::new("Close").shortcut_text(crate::settings::keys_text(false, "W"))).clicked() {
@@ -460,10 +459,10 @@ impl DyoSnap {
             group(ui, 3, sz.x, TOOL_H, |ui| {
                 tool_btn(ui, Icon::Blur, Tool::Blur, self);
                 tool_btn(ui, Icon::Crop, Tool::Crop, self);
-                if icon_button(ui, Icon::Resize, false, enabled, sz, "Resize picture").clicked() {
-                    if let Some(e) = &mut self.ed {
-                        e.resize = Some(ResizeDlg { w: e.doc.base.width(), h: e.doc.base.height(), keep: true });
-                    }
+                if icon_button(ui, Icon::Resize, false, enabled, sz, "Resize picture").clicked()
+                    && let Some(e) = &mut self.ed
+                {
+                    e.resize = Some(ResizeDlg { w: e.doc.base.width(), h: e.doc.base.height(), keep: true });
                 }
             });
 
@@ -696,23 +695,21 @@ impl DyoSnap {
                     };
                     ui.data_mut(|d| d.insert_temp(drag_id, which));
                 }
-                if tl_resp.dragged() || tl_resp.clicked() {
-                    if let Some(q) = tl_resp.interact_pointer_pos() {
-                        let which: u8 = if tl_resp.clicked() { 0 } else { ui.data(|d| d.get_temp(drag_id).unwrap_or(0)) };
-                        let t = to_t(q.x);
-                        match which {
-                            1 => {
-                                v.trim.0 = t.min(v.trim.1 - 0.2).max(0.0);
-                                v.seek(&ctx, v.trim.0);
-                            }
-                            2 => {
-                                v.trim.1 = t.max(v.trim.0 + 0.2).min(dur);
-                                v.seek(&ctx, v.trim.1);
-                            }
-                            _ => {
-                                let t = t.clamp(v.trim.0, v.trim.1);
-                                v.seek(&ctx, t);
-                            }
+                if (tl_resp.dragged() || tl_resp.clicked()) && let Some(q) = tl_resp.interact_pointer_pos() {
+                    let which: u8 = if tl_resp.clicked() { 0 } else { ui.data(|d| d.get_temp(drag_id).unwrap_or(0)) };
+                    let t = to_t(q.x);
+                    match which {
+                        1 => {
+                            v.trim.0 = t.min(v.trim.1 - 0.2).max(0.0);
+                            v.seek(&ctx, v.trim.0);
+                        }
+                        2 => {
+                            v.trim.1 = t.max(v.trim.0 + 0.2).min(dur);
+                            v.seek(&ctx, v.trim.1);
+                        }
+                        _ => {
+                            let t = t.clamp(v.trim.0, v.trim.1);
+                            v.seek(&ctx, t);
                         }
                     }
                 }

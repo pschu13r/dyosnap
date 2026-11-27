@@ -263,7 +263,7 @@ impl State {
         }
         let (w, h) = (s.size.0 as i32, s.size.1 as i32);
         let Ok((buffer, canvas)) = pool.create_buffer(w, h, w * 4, wl_shm::Format::Argb8888) else { return };
-        for px in canvas.chunks_exact_mut(4) {
+        for px in canvas.as_chunks_mut::<4>().0 {
             px.copy_from_slice(&color.to_le_bytes());
         }
         let surface = s.layer.wl_surface();
@@ -287,7 +287,7 @@ impl State {
         let Some(pm) = paint_bar(&font, bar, paused) else { return };
         let Ok((buffer, canvas)) = pool.create_buffer(w, h, w * 4, wl_shm::Format::Argb8888) else { return };
         // tiny-skia: premultiplied RGBA. wl_shm ARGB8888 (little endian): B, G, R, A.
-        for (dst, src) in canvas.chunks_exact_mut(4).zip(pm.data().chunks_exact(4)) {
+        for (dst, src) in canvas.as_chunks_mut::<4>().0.iter_mut().zip(pm.data().as_chunks::<4>().0) {
             dst.copy_from_slice(&[src[2], src[1], src[0], src[3]]);
         }
         let surface = bar.surface.layer.wl_surface();
@@ -352,8 +352,7 @@ fn paint_bar(font: &FontRef<'static>, bar: &Bar, paused: bool) -> Option<tiny_sk
     let mut pm = Pixmap::new((w * sc) as u32, (h * sc) as u32)?;
     let t = Transform::from_scale(sc, sc);
     let fill = |pm: &mut Pixmap, r: Rect, radius: f32, rgb: (u8, u8, u8)| {
-        let mut p = Paint::default();
-        p.anti_alias = true;
+        let mut p = Paint { anti_alias: true, ..Default::default() };
         p.set_color_rgba8(rgb.0, rgb.1, rgb.2, 255);
         if let Some(path) = rounded(r, radius) {
             pm.fill_path(&path, &p, FillRule::Winding, t, None);
@@ -362,8 +361,7 @@ fn paint_bar(font: &FontRef<'static>, bar: &Bar, paused: bool) -> Option<tiny_sk
     pm.fill(Color::from_rgba8(236, 236, 238, 255));
     // Dot and timer.
     let (dr, dg, db) = if paused { (255, 170, 0) } else { (226, 38, 38) };
-    let mut p = Paint::default();
-    p.anti_alias = true;
+    let mut p = Paint { anti_alias: true, ..Default::default() };
     p.set_color_rgba8(dr, dg, db, 255);
     if let Some(c) = PathBuilder::from_circle(8.0 + 6.0, h / 2.0, 5.0) {
         pm.fill_path(&c, &p, FillRule::Winding, t, None);
@@ -396,8 +394,7 @@ fn paint_bar(font: &FontRef<'static>, bar: &Bar, paused: bool) -> Option<tiny_sk
             BarAction::Pause => {
                 fill(&mut pm, r, 4.0, if hover { (200, 200, 200) } else { (214, 214, 214) });
                 let c = r.center();
-                let mut ip = Paint::default();
-                ip.anti_alias = true;
+                let mut ip = Paint { anti_alias: true, ..Default::default() };
                 ip.set_color_rgba8(40, 40, 40, 255);
                 let mut pb = PathBuilder::new();
                 if paused {
@@ -864,6 +861,6 @@ mod tests {
             pm
         };
         // Some pixels of the text are dark.
-        assert!(pm.data().chunks_exact(4).any(|p| p[3] == 255 && p[0] < 100));
+        assert!(pm.data().as_chunks::<4>().0.iter().any(|p| p[3] == 255 && p[0] < 100));
     }
 }

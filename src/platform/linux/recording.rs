@@ -218,8 +218,7 @@ pub(super) fn shared_rects() -> Vec<egui::Rect> {
 
 fn latest_frame(source: usize) -> Option<Frame> {
     let cast = CAST.lock().ok()?;
-    let f = cast.as_ref()?.sources.get(source)?.frame.lock().ok()?.clone();
-    f
+    cast.as_ref()?.sources.get(source)?.frame.lock().ok()?.clone()
 }
 
 /// The pixels of a screen inside one stream's frames.
@@ -439,12 +438,12 @@ pub fn capture_all_screens(_count: usize, cursor: bool) -> Vec<PathBuf> {
         log::info!(target: "dyosnap", "screen {i} at {:?}: {cut:?} of a {}x{} frame", d.bounds, f.width, f.height);
         let Some(mut rgba) = cut_rows(&f, cut) else { break };
         if f.pix_fmt.starts_with("bgr") {
-            for px in rgba.chunks_exact_mut(4) {
+            for px in rgba.as_chunks_mut::<4>().0 {
                 px.swap(0, 2);
             }
         }
         if f.pix_fmt.ends_with('0') {
-            for px in rgba.chunks_exact_mut(4) {
+            for px in rgba.as_chunks_mut::<4>().0 {
                 px[3] = 255;
             }
         }
@@ -679,11 +678,9 @@ fn feed(fifo: &Path, cut: Cut, fw: u32, fh: u32, fps: u32) {
     let mut last: Option<Arc<Vec<u8>>> = None;
     let mut last_seq = 0;
     loop {
-        if let Some(f) = latest_frame(cut.source) {
-            if f.width == fw && f.height == fh && f.seq != last_seq {
-                last_seq = f.seq;
-                last = cut_rows(&f, cut).map(Arc::new);
-            }
+        if let Some(f) = latest_frame(cut.source) && f.width == fw && f.height == fh && f.seq != last_seq {
+            last_seq = f.seq;
+            last = cut_rows(&f, cut).map(Arc::new);
         }
         let Some(data) = &last else { break };
         if file.write_all(data).is_err() {

@@ -247,32 +247,32 @@ impl DyoSnap {
                     log::info!(target: "dyosnap", "select: drag started on screen {si} at {p:?}");
                 }
                 // On the release the mouse can have moved on since the last drag frame.
-                if resp.dragged() || (shot_mode && resp.drag_stopped()) || (global.is_some() && drag.is_some()) {
-                    if let (Some(d), Some(p)) = (*drag, pointer) {
-                        *rect = Some(match d {
-                            // A screenshot area is whole pixels of the screen where it began.
-                            SelDrag::New(s) if shot_mode => grid_at(s).drag_rect(s, p),
-                            SelDrag::New(s) => Rect::from_two_pos(s, p).intersect(all),
-                            SelDrag::Move(s, r) => {
-                                // The area can move across all screens.
-                                let mut nr = r.translate(p - s);
-                                let dx = (all.min.x - nr.min.x).max(0.0) + (all.max.x - nr.max.x).min(0.0);
-                                let dy = (all.min.y - nr.min.y).max(0.0) + (all.max.y - nr.max.y).min(0.0);
-                                nr = nr.translate(vec2(dx, dy));
-                                nr
-                            }
-                            SelDrag::Resize(e, r) => {
-                                let mut nr = r;
-                                if e & 1 != 0 { nr.min.x = p.x.min(nr.max.x - 20.0); }
-                                if e & 2 != 0 { nr.max.x = p.x.max(nr.min.x + 20.0); }
-                                if e & 4 != 0 { nr.min.y = p.y.min(nr.max.y - 20.0); }
-                                if e & 8 != 0 { nr.max.y = p.y.max(nr.min.y + 20.0); }
-                                nr.intersect(all)
-                            }
-                        });
-                        // The other screens show the area too.
-                        ctx.request_repaint();
-                    }
+                if (resp.dragged() || (shot_mode && resp.drag_stopped()) || (global.is_some() && drag.is_some()))
+                    && let (Some(d), Some(p)) = (*drag, pointer)
+                {
+                    *rect = Some(match d {
+                        // A screenshot area is whole pixels of the screen where it began.
+                        SelDrag::New(s) if shot_mode => grid_at(s).drag_rect(s, p),
+                        SelDrag::New(s) => Rect::from_two_pos(s, p).intersect(all),
+                        SelDrag::Move(s, r) => {
+                            // The area can move across all screens.
+                            let mut nr = r.translate(p - s);
+                            let dx = (all.min.x - nr.min.x).max(0.0) + (all.max.x - nr.max.x).min(0.0);
+                            let dy = (all.min.y - nr.min.y).max(0.0) + (all.max.y - nr.max.y).min(0.0);
+                            nr = nr.translate(vec2(dx, dy));
+                            nr
+                        }
+                        SelDrag::Resize(e, r) => {
+                            let mut nr = r;
+                            if e & 1 != 0 { nr.min.x = p.x.min(nr.max.x - 20.0); }
+                            if e & 2 != 0 { nr.max.x = p.x.max(nr.min.x + 20.0); }
+                            if e & 4 != 0 { nr.min.y = p.y.min(nr.max.y - 20.0); }
+                            if e & 8 != 0 { nr.max.y = p.y.max(nr.min.y + 20.0); }
+                            nr.intersect(all)
+                        }
+                    });
+                    // The other screens show the area too.
+                    ctx.request_repaint();
                 }
                 let mut shot_taken = None;
                 // The pointer is on a button of the record area: no crosshair there.

@@ -45,6 +45,8 @@ enum Request {
 
 /// The types an offer from another app has, filled as the compositor lists them.
 type OfferMimes = Arc<Mutex<Vec<String>>>;
+/// One served format: its MIME type and the bytes.
+type OfferItem = (String, Arc<Vec<u8>>);
 
 struct Attached {
     display: usize,
@@ -144,7 +146,7 @@ struct State {
     /// The serial of the newest input event on this app's surfaces.
     serial: Option<u32>,
     /// The data being served, with its source.
-    current: Option<(wl_data_source::WlDataSource, Vec<(String, Arc<Vec<u8>>)>)>,
+    current: Option<(wl_data_source::WlDataSource, Vec<OfferItem>)>,
     /// What is on the clipboard now (told only while focused).
     selection: Option<wl_data_offer::WlDataOffer>,
 }
@@ -304,10 +306,8 @@ impl Dispatch<wl_seat::WlSeat, ()> for State {
             match (caps.contains(wl_seat::Capability::Keyboard), st.keyboard.is_some()) {
                 (true, false) => st.keyboard = Some(seat.get_keyboard(qh, ())),
                 (false, true) => {
-                    if let Some(k) = st.keyboard.take() {
-                        if k.version() >= 3 {
-                            k.release();
-                        }
+                    if let Some(k) = st.keyboard.take() && k.version() >= 3 {
+                        k.release();
                     }
                     st.focused = false;
                     FOCUSED.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -317,10 +317,8 @@ impl Dispatch<wl_seat::WlSeat, ()> for State {
             match (caps.contains(wl_seat::Capability::Pointer), st.pointer.is_some()) {
                 (true, false) => st.pointer = Some(seat.get_pointer(qh, ())),
                 (false, true) => {
-                    if let Some(p) = st.pointer.take() {
-                        if p.version() >= 3 {
-                            p.release();
-                        }
+                    if let Some(p) = st.pointer.take() && p.version() >= 3 {
+                        p.release();
                     }
                 }
                 _ => {}
@@ -385,10 +383,8 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for State {
 
 impl Dispatch<wl_data_offer::WlDataOffer, OfferMimes> for State {
     fn event(_: &mut Self, _: &wl_data_offer::WlDataOffer, ev: wl_data_offer::Event, mimes: &OfferMimes, _: &Connection, _: &QueueHandle<Self>) {
-        if let wl_data_offer::Event::Offer { mime_type } = ev {
-            if let Ok(mut m) = mimes.lock() {
-                m.push(mime_type);
-            }
+        if let wl_data_offer::Event::Offer { mime_type } = ev && let Ok(mut m) = mimes.lock() {
+            m.push(mime_type);
         }
     }
 }
@@ -397,12 +393,11 @@ impl Dispatch<wl_data_source::WlDataSource, ()> for State {
     fn event(st: &mut Self, source: &wl_data_source::WlDataSource, ev: wl_data_source::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         match ev {
             wl_data_source::Event::Send { fd, mime_type } => {
-                if let Some((s, items)) = &st.current {
-                    if s == source {
-                        if let Some((_, data)) = items.iter().find(|(m, _)| *m == mime_type) {
-                            serve(fd, data.clone());
-                        }
-                    }
+                if let Some((s, items)) = &st.current
+                    && s == source
+                    && let Some((_, data)) = items.iter().find(|(m, _)| *m == mime_type)
+                {
+                    serve(fd, data.clone());
                 }
             }
             wl_data_source::Event::Cancelled => {
@@ -419,10 +414,8 @@ impl Dispatch<wl_data_source::WlDataSource, ()> for State {
 
 impl Drop for State {
     fn drop(&mut self) {
-        if let Some(d) = self.device.take() {
-            if d.version() >= 2 {
-                d.release();
-            }
+        if let Some(d) = self.device.take() && d.version() >= 2 {
+            d.release();
         }
         let _ = self.seat.take();
     }

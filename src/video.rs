@@ -60,13 +60,12 @@ pub fn probe(ffmpeg: &Path, file: &Path) -> Option<Probe> {
         }
         if line.contains("Video:") && size.is_none() {
             for tok in line.split([' ', ',']) {
-                if let Some((a, b)) = tok.split_once('x') {
-                    if let (Ok(w), Ok(h)) = (a.parse::<u32>(), b.parse::<u32>()) {
-                        if w > 1 && h > 1 {
-                            size = Some([w, h]);
-                            break;
-                        }
-                    }
+                if let Some((a, b)) = tok.split_once('x')
+                    && let (Ok(w), Ok(h)) = (a.parse::<u32>(), b.parse::<u32>())
+                    && w > 1 && h > 1
+                {
+                    size = Some([w, h]);
+                    break;
                 }
             }
         }
