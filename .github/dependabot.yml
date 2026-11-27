@@ -1,11 +1,15 @@
 # Weekly dependency updates. Minor and patch updates of one ecosystem come as a single PR;
 # major updates get their own PRs, so they are reviewed one by one.
+# A new version is only proposed once it is 7 days old, so a hijacked release has time to be
+# found and pulled first. Security updates are not delayed by this.
 version: 2
 updates:
   - package-ecosystem: cargo
     directory: "/"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       cargo-minor-patch:
         update-types: ["minor", "patch"]
@@ -14,6 +18,8 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       actions-minor-patch:
         update-types: ["minor", "patch"]

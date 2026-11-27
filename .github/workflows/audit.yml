@@ -1,9 +1,10 @@
 # Security audit. Two checks:
-#  - cargo-audit: checks Cargo.lock against the RustSec advisory database and fails on
-#    known vulnerabilities (unmaintained crates are only warnings).
+#  - cargo-deny advisories: checks Cargo.lock against the RustSec advisory database and fails
+#    on known vulnerabilities (rules in deny.toml). CI runs it on every push too; this weekly
+#    run catches advisories published after the last push.
 #  - ffmpeg: the macOS app bundles FFmpeg, which Dependabot cannot see. This opens an issue
 #    when a newer FFmpeg release than the one in scripts/build-ffmpeg.sh exists.
-# Runs when the lockfile, manifest or FFmpeg build script change, every Monday, and by hand.
+# Runs when the FFmpeg build script changes, every Monday, and by hand.
 # Like the other workflows it has a read-only token (the ffmpeg job may also write issues),
 # does not keep it in .git/config, and pins actions to a commit.
 name: Security audit
@@ -12,8 +13,6 @@ on:
   push:
     branches: [main]
     paths:
-      - Cargo.lock
-      - Cargo.toml
       - scripts/build-ffmpeg.sh
       - .github/workflows/audit.yml
   schedule:
@@ -23,7 +22,7 @@ on:
 permissions: {}
 
 jobs:
-  cargo-audit:
+  advisories:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -32,14 +31,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust and cargo-audit
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-          cargo install --locked cargo-audit@0.23.0
+      - uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83 # v2.90.11
+        with:
+          tool: cargo-deny@0.22.2
 
-      - name: Audit Cargo.lock
-        run: cargo audit
+      - name: Check Cargo.lock for advisories
+        run: cargo deny --locked check advisories
 
   ffmpeg:
     runs-on: ubuntu-24.04

@@ -1,0 +1,89 @@
+# Checks every push to main and every pull request:
+#  - build: clippy (warnings are errors) and the tests on macOS, Linux x86_64 and Linux arm64.
+#  - deny: crate licenses, known vulnerabilities and crate sources (deny.toml).
+#  - zizmor: security lint of the workflows and the Dependabot config.
+# Rust is the current stable on purpose, not pinned: compiler and std fixes arrive at once,
+# and a new clippy lint may turn this red without a code change.
+# scripts/check.sh runs the macOS part locally before every push.
+# Like the other workflows it has a read-only token, does not keep it in .git/config, and
+# pins actions to a commit.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-latest, ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config clang libclang-dev libpipewire-0.3-dev libspa-0.2-dev \
+            libwayland-dev libxkbcommon-dev libdbus-1-dev
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+
+      # Only main writes the cache, so a pull request cannot plant build output for later runs.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --locked
+
+  deny:
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83 # v2.90.11
+        with:
+          tool: cargo-deny@0.22.2
+
+      - name: cargo deny
+        run: cargo deny --locked check
+
+  zizmor:
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: pipx run zizmor==1.33.1 --format=github .github

@@ -46,7 +46,7 @@ These will not be merged:
 - No local paths (like `/Users/<name>/...` or `/home/<name>/...`) in code, scripts or docs.
   `scripts/bundle.sh` checks the macOS build for them.
 - Do not commit build output (`target/`, `dist/`, `build/`).
-- Check the dependencies for known security issues with `cargo audit`.
+- Check the dependencies (licenses, known security issues, sources) with `cargo deny check`.
 
 ## Signing (macOS)
 
