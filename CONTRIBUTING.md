@@ -9,6 +9,8 @@ it that way are welcome: bug fixes, better captures and recordings, editor tools
 
 These will not be merged:
 
+- Anything that makes taking a screenshot or recording more complicated, such as extra
+  steps, clicks or dialogs. The goal of DyoSnap is to get both done in as few clicks as possible.
 - Network access of any kind: uploads, accounts, telemetry, update checks, crash reports.
 - Large new dependencies for small features.
 - X11 support. DyoSnap on Linux is Wayland only.
