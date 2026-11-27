@@ -48,7 +48,7 @@ it useful too.
   recorders make huge files that take ages to send. DyoSnap keeps them small.
 - **Fast and light:** built for speed. While it waits in the menu bar, it uses 0% CPU
   and about 100 MB of memory (M1 Pro, macOS 27).
-- **Tiny download:** 6.4 MB on macOS, 15 MB installed, ffmpeg included.
+- **Tiny download:** about 7 MB on macOS, about 16 MB installed, ffmpeg included.
 - **No account, no cloud, no ads, no subscription.** DyoSnap makes no network
   connections. Your captures stay on your computer.
 - **Simple:** no frills, no setup. Pick an area, annotate, done.
