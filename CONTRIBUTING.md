@@ -29,7 +29,8 @@ These will not be merged:
 2. Build and run it as described in the [README](README.md#build-macos). On Linux, see
    [Linux](README.md#linux).
 3. Keep the change focused: one fix or feature per pull request.
-4. Run `cargo test` and try your change in the running app.
+4. Run `scripts/check.sh` (clippy, tests, notices) and try your change in the running app.
+   To run it before every push, turn on the hook once: `git config core.hooksPath .githooks`.
 5. Describe what you changed and how you tested it. For UI changes, add a screenshot.
 
 `main` is protected. All changes go through a pull request.
