@@ -8,6 +8,9 @@
 # repo jobs, which run no project code, may write or see the signing key
 # (secret REPO_GPG_PRIVATE_KEY). Actions are pinned to a commit.
 #
+# Pushes to main and pull requests that change the packaging only build and lint the
+# packages; the release and repo jobs run for tags only.
+#
 # "Run workflow" with repo_only skips the build and only rebuilds the repositories from the
 # last 3 releases (to seed them, or to rebuild them at any time). It only works on main: the
 # repo job runs the scripts of the chosen ref with the signing and deploy keys, so no other
@@ -23,6 +26,21 @@ on:
         default: false
   push:
     tags: ["v*"]
+    branches: [main]
+    # Tags always build; for branches only changes to the packaging do.
+    paths:
+      - linux/**
+      - Cargo.toml
+      - scripts/bundle-linux.sh
+      - scripts/lint-packages.sh
+      - .github/workflows/linux.yml
+  pull_request:
+    paths:
+      - linux/**
+      - Cargo.toml
+      - scripts/bundle-linux.sh
+      - scripts/lint-packages.sh
+      - .github/workflows/linux.yml
 
 permissions: {}
 
@@ -45,7 +63,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             pkg-config clang libclang-dev libpipewire-0.3-dev libspa-0.2-dev \
-            libwayland-dev libxkbcommon-dev libdbus-1-dev dpkg-dev
+            libwayland-dev libxkbcommon-dev libdbus-1-dev dpkg-dev lintian
 
       - name: Install Rust, cargo-about, cargo-deb and cargo-generate-rpm
         run: |
@@ -59,6 +77,9 @@ jobs:
 
       - name: Build the package
         run: ./scripts/bundle-linux.sh
+
+      - name: Lint the packages (lintian, rpmlint)
+        run: ./scripts/lint-packages.sh
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
