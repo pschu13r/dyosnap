@@ -1,6 +1,6 @@
 # DyoSnap
 
-A light screenshot and screen-recording app for the macOS menu bar and Linux desktops.
+A light screenshot and screen-recording app that saves you unnecessary clicks for the macOS menu bar and Linux desktops.
 Nothing is uploaded: captures are saved locally and copied to the clipboard.
 
 **[Download the latest release](https://github.com/pschu13r/dyosnap/releases/latest)**
