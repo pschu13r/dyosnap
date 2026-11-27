@@ -13,6 +13,16 @@ updates:
     groups:
       cargo-minor-patch:
         update-types: ["minor", "patch"]
+    # Held back until winit moves on: winit 0.30 (through sctk-adwaita) still pulls
+    # smithay-client-toolkit 0.19 and tiny-skia 0.11, so a newer direct version only adds
+    # a second copy on Linux. When Dependabot proposes the next winit major, remove these
+    # rules and update both. sctk 0.21 needs code changes in src/platform/linux
+    # (delegate_* macros replaced by delegate_dispatch2!, see PR #8).
+    ignore:
+      - dependency-name: smithay-client-toolkit
+        versions: [">=0.20"]
+      - dependency-name: tiny-skia
+        versions: [">=0.12"]
 
   - package-ecosystem: github-actions
     directory: "/"
