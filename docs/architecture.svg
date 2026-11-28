@@ -2,7 +2,7 @@
 <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#555"/></marker></defs>
 <rect width="2000" height="1420" fill="#FFFFFF"/>
 <text x="560" y="62" font-size="28" font-weight="700" fill="#111">DyoSnap: component diagram (C4 level 3)</text>
-<text x="560" y="94" font-size="15" fill="#444">As of v1.5.1. One code base and one UI (egui/eframe on OpenGL) on macOS and Linux. Only the platform layer differs per system.</text>
+<text x="560" y="94" font-size="15" fill="#444">One code base and one UI (egui/eframe on OpenGL) on macOS and Linux. Only the platform layer differs per system.</text>
 <circle cx="370" cy="42" r="24" fill="#08427B"/>
 <rect x="260" y="62" width="220" height="80" rx="26" fill="#08427B" stroke="#073B6F" stroke-width="1.5"/>
 <text x="370.0" y="90" text-anchor="middle" font-size="17" font-weight="700" fill="#FFFFFF">User</text>
