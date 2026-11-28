@@ -40,9 +40,13 @@ pub fn list_devices(ffmpeg: &Path) -> Devices {
         .args(["-hide_banner", "-f", "avfoundation", "-list_devices", "true", "-i", ""])
         .stdin(Stdio::null())
         .output();
+    let Ok(out) = out else { return Devices::default() };
+    parse_devices(&String::from_utf8_lossy(&out.stderr))
+}
+
+/// Reads the device list that `ffmpeg -list_devices true` writes to stderr.
+fn parse_devices(text: &str) -> Devices {
     let mut devices = Devices::default();
-    let Ok(out) = out else { return devices };
-    let text = String::from_utf8_lossy(&out.stderr);
     let mut in_audio = false;
     for line in text.lines() {
         if line.contains("video devices:") {
@@ -58,7 +62,13 @@ pub fn list_devices(ffmpeg: &Path) -> Devices {
         let rest = &line[pos + 3..];
         let Some(close) = rest.find(']') else { continue };
         let Ok(idx) = rest[..close].parse::<usize>() else { continue };
-        let name = rest[close + 1..].trim().to_string();
+        let mut name = rest[close + 1..].trim();
+        // Since ffmpeg 9.1 a "[uid:...]" follows the name. ffmpeg finds the device by its
+        // name only, and saved settings hold the name, so drop it.
+        if let Some(uid) = name.rfind("[uid:").filter(|_| name.ends_with(']')) {
+            name = name[..uid].trim_end();
+        }
+        let name = name.to_string();
         if in_audio {
             devices.audio_inputs.push(name);
         } else if let Some(n) = name.strip_prefix("Capture screen ").and_then(|n| n.trim().parse::<usize>().ok()) {
@@ -159,4 +169,40 @@ pub fn stop_fallback(child: &mut Child) {
         let _ = stdin.write_all(b"\n");
     }
     let _ = Command::new("/bin/kill").args(["-INT", &child.id().to_string()]).status();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_devices_of_ffmpeg_9_0() {
+        let text = "\
+[AVFoundation indev @ 0x7c09014140] AVFoundation video devices:
+[AVFoundation indev @ 0x7c09014140] [0] FaceTime HD Camera
+[AVFoundation indev @ 0x7c09014140] [1] Capture screen 0
+[AVFoundation indev @ 0x7c09014140] AVFoundation audio devices:
+[AVFoundation indev @ 0x7c09014140] [0] MacBook Pro Microphone
+[in#0 @ 0x7c09014000] Error opening input: Input/output error";
+        let d = parse_devices(text);
+        assert_eq!(d.screens, vec![(0, 1)]);
+        assert_eq!(d.screen_index, Some(1));
+        assert_eq!(d.audio_inputs, vec!["MacBook Pro Microphone".to_string()]);
+    }
+
+    #[test]
+    fn drops_the_uid_of_ffmpeg_9_1() {
+        let text = "\
+[AVFoundation indev @ 0x7787010180] AVFoundation video devices:
+[AVFoundation indev @ 0x7787010180] [0] FaceTime HD Camera  [uid:47B4B64B-7067-4B9C-AD2B-AE273A71F4B5]
+[AVFoundation indev @ 0x7787010180] [1] Capture screen 0
+[AVFoundation indev @ 0x7787010180] [2] Capture screen 1
+[AVFoundation indev @ 0x7787010180] AVFoundation audio devices:
+[AVFoundation indev @ 0x7787010180] [0] MacBook Pro Microphone  [uid:BuiltInMicrophoneDevice]
+[AVFoundation indev @ 0x7787010180] [1] USB Mic [Pro]  [uid:AppleUSBAudioEngine:Vendor:Mic:1234:1]";
+        let d = parse_devices(text);
+        assert_eq!(d.screens, vec![(0, 1), (1, 2)]);
+        assert_eq!(d.screen_index, Some(1));
+        assert_eq!(d.audio_inputs, vec!["MacBook Pro Microphone".to_string(), "USB Mic [Pro]".to_string()]);
+    }
 }
