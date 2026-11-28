@@ -48,7 +48,7 @@ def line(points, label=None, lx=None, ly=None, anchor="middle", arrow=True, rota
 
 # Title
 P.append('<text x="560" y="62" font-size="28" font-weight="700" fill="#111">DyoSnap: component diagram (C4 level 3)</text>')
-P.append('<text x="560" y="94" font-size="15" fill="#444">As of v1.5.0. One code base and one UI (egui/eframe on OpenGL) on macOS and Linux. Only the platform layer differs per system.</text>')
+P.append('<text x="560" y="94" font-size="15" fill="#444">As of v1.5.1. One code base and one UI (egui/eframe on OpenGL) on macOS and Linux. Only the platform layer differs per system.</text>')
 
 # Person
 P.append(f'<circle cx="370" cy="42" r="24" fill="{PERSON[0]}"/>')
