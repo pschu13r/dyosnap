@@ -106,9 +106,10 @@ quality settings). Linux cannot record without ffmpeg.
 - **DyoSnap ships its own ffmpeg, built under the LGPL.** Ready-made macOS builds almost
   always contain x264 and are GPL. The own build has only what DyoSnap needs: AVFoundation
   input, Apple's hardware H.264 encoder and Apple's AAC encoder. That keeps it small.
-- **A patch fixes lost sound.** ffmpeg's AVFoundation input keeps only one audio frame.
-  While a video frame is read, newer audio overwrites older audio, so recordings lost about
-  15 % of their sound. The patch queues the audio frames instead.
+- **No sound is lost.** Up to ffmpeg 9.0, the AVFoundation input kept only one audio frame.
+  While a video frame was read, newer audio overwrote older audio, so recordings lost about
+  15 % of their sound. DyoSnap patched this until ffmpeg 9.1, which waits for the reader
+  instead of overwriting. Since then ffmpeg ships unchanged.
 - **The red frame is four thin windows outside the area.** One see-through window over the
   area would be recorded as black.
 

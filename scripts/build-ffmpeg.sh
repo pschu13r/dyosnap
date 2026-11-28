@@ -3,7 +3,7 @@
 #
 # License: LGPL 2.1 or later. No --enable-gpl, no --enable-nonfree, no x264.
 # Video is encoded with Apple's h264_videotoolbox, audio with aac_at.
-# Patches from macos/ffmpeg-*.patch are applied (see each file for why).
+# The source is built unchanged, without patches.
 # Only what DyoSnap uses is built in: screen capture (avfoundation), sound output
 # for the player (audiotoolbox), mp4/mov/gif in and out, a handful of filters,
 # and local files only (no network).
@@ -13,8 +13,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION=9.0.2
-SHA256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
+VERSION=9.1
+SHA256=1a4d394ae63d190a526cd052eb4415c156b5c5e2df37efab41a7de0b8fde2433
 # FFmpeg release signing key <ffmpeg-devel@ffmpeg.org>
 KEY_FPR=FCF986EA15E6E293A5644F10B4322F04D67658D8
 
@@ -48,11 +48,6 @@ fi
 
 rm -rf "$SRC" "$OUT"
 tar -xJf "$TARBALL" -C "$ROOT"
-# Our changes to ffmpeg (they are LGPL too and ship with the source).
-for p in macos/ffmpeg-*.patch; do
-    echo "==> Applying $p"
-    patch -p1 -s -d "$SRC" < "$p"
-done
 cd "$SRC"
 
 echo "==> Configuring"

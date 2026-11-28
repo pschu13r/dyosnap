@@ -59,22 +59,19 @@ Source code
     https://ffmpeg.org/releases/ffmpeg-$FF_VERSION.tar.xz.asc
   The same tarball and its signature are attached to every DyoSnap release:
     https://github.com/pschu13r/dyosnap/releases
-  The patch and build script are also in the DyoSnap source:
+  The build script is also in the DyoSnap source:
     https://github.com/pschu13r/dyosnap
 
 Changes by DyoSnap
 --------------------
-  One patch is applied to the source before building:
-    ffmpeg-avfoundation-audio-queue.patch
-    (changes libavdevice/avfoundation.m: queue audio frames from the
-    microphone instead of overwriting the one not read yet)
-  The patch and the build script (build-ffmpeg.sh) are inside the app at
+  None. The source is built unchanged. The build script (build-ffmpeg.sh)
+  is inside the app at
     DyoSnap.app/Contents/Resources/ffmpeg/
 
 Build
 -----
-  build-ffmpeg.sh downloads the tarball above, checks it, applies the patch
-  and builds with the following options (from "ffmpeg -buildconf"):
+  build-ffmpeg.sh downloads the tarball above, checks it and builds with
+  the following options (from "ffmpeg -buildconf"):
 
 TXT
 grep -E '^ +--' "$BUILDCONF" | sed 's/^ */    /'

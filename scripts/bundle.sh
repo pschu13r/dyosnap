@@ -51,10 +51,10 @@ sed "s/@VERSION@/$VERSION/g" macos/Info.plist > "$APP/Contents/Info.plist"
 plutil -lint -s "$APP/Contents/Info.plist"
 iconutil -c icns "$WORK/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
 # Licenses travel with every copy of the app. The ffmpeg folder holds what the LGPL
-# asks for besides the notice: our patch and the exact build script.
+# asks for besides the notice: the exact build script.
 cp LICENSE THIRD_PARTY_NOTICES.txt "$APP/Contents/Resources/"
 mkdir -p "$APP/Contents/Resources/ffmpeg"
-cp macos/ffmpeg-*.patch scripts/build-ffmpeg.sh "$APP/Contents/Resources/ffmpeg/"
+cp scripts/build-ffmpeg.sh "$APP/Contents/Resources/ffmpeg/"
 
 # Fail if a local path got into a binary.
 for bin in "$APP/Contents/MacOS/"*; do

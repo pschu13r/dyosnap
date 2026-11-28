@@ -257,10 +257,10 @@ calls or voices may require their consent where you live.
 MIT, see [LICENSE](LICENSE).
 
 The app also ships ffmpeg (LGPL 2.1+) and the code of many Rust crates. Their licenses, the
-ffmpeg source, its build options and our patch are listed in
+ffmpeg source and its build options are listed in
 [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt). `scripts/notices.sh` writes that file from
-`Cargo.lock` and the ffmpeg build; `bundle.sh` runs it and copies it, `LICENSE`, the patch and
-the ffmpeg build script into `DyoSnap.app/Contents/Resources/`.
+`Cargo.lock` and the ffmpeg build; `bundle.sh` runs it and copies it, `LICENSE` and the ffmpeg
+build script into `DyoSnap.app/Contents/Resources/`.
 
 On Linux, ffmpeg is not shipped. `scripts/bundle-linux.sh` writes the crate licenses for the
 Linux build into the package as `THIRD_PARTY_NOTICES.txt`.
